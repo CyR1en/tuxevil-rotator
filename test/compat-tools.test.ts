@@ -164,6 +164,40 @@ describe("OpenAI Compat Tool Calling", () => {
 		assert.strictEqual(parameters.properties.config.properties.key.type, "string");
 	});
 
+	it("keeps Claude tool schemas valid for Gemini's outer API", () => {
+		const schema = {
+			type: "object",
+			properties: {
+				flag: { type: "boolean", enum: [true, false] },
+				choice: { type: "boolean", anyOf: [{ const: true }, { const: false }] },
+				enabled: { const: true },
+				items: { type: "array", uniqueItems: true, items: { type: "string" } },
+				mode: { type: "string", enum: ["fast", "slow"] },
+			},
+		};
+		const bodies = [
+			openAIToAntigravityBody({
+				model: "claude-opus-4-6-thinking",
+				messages: [{ role: "user", content: "Use the tool" }],
+				tools: [{ type: "function", function: { name: "inspect", parameters: schema } }],
+			}),
+			anthropicToAntigravityBody({
+				model: "claude-opus-4-6-thinking",
+				messages: [{ role: "user", content: "Use the tool" }],
+				tools: [{ name: "inspect", input_schema: schema }],
+			}),
+		];
+
+		for (const body of bodies) {
+			const properties = (body.request as any).tools[0].functionDeclarations[0].parameters.properties;
+			assert.deepStrictEqual(properties.flag, { type: "boolean" });
+			assert.deepStrictEqual(properties.choice, { type: "boolean" });
+			assert.deepStrictEqual(properties.enabled, { type: "boolean" });
+			assert.deepStrictEqual(properties.items, { type: "array", items: { type: "string" } });
+			assert.deepStrictEqual(properties.mode, { type: "string", enum: ["fast", "slow"] });
+		}
+	});
+
 	it("strips Gemini vendor schema extensions recursively", () => {
 		const schema = {
 			type: "object",

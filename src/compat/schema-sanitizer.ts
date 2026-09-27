@@ -108,7 +108,7 @@ export function sanitizeClaudeViaGeminiSchema(schema: unknown): unknown {
 		"patternProperties", "unevaluatedProperties", "unevaluatedItems",
 		"contentEncoding", "contentMediaType",
 		// Gemini's protobuf layer rejects these regardless of target model
-		"exclusiveMinimum", "exclusiveMaximum", "propertyNames", "deprecated",
+		"exclusiveMinimum", "exclusiveMaximum", "propertyNames", "uniqueItems", "deprecated",
 	]);
 
 	const out: Record<string, unknown> = {};
@@ -279,6 +279,14 @@ export function sanitizeClaudeViaGeminiSchema(schema: unknown): unknown {
 		}
 
 		out[key] = isRecord(value) ? sanitizeClaudeViaGeminiSchema(value) : value;
+	}
+	// Gemini's Schema proto accepts only strings in enum, even for Claude-bound
+	// requests. Preserve the primitive type and drop unsupported enum values.
+	if (Array.isArray(out.enum) && !out.enum.every((value) => typeof value === "string")) {
+		if (!out.type && out.enum.length > 0 && out.enum.every((value) => typeof value === "boolean")) {
+			out.type = "boolean";
+		}
+		delete out.enum;
 	}
 	return out;
 }
