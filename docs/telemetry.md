@@ -15,6 +15,7 @@ tuxevil-rotator collects **anonymous usage telemetry** to help understand how th
 
 **Flag events** (sent immediately when Google flags an account):
 - HTTP status that triggered the flag (`401` or `403`)
+- Provider reason code (for example `VALIDATION_REQUIRED`) and a short, filtered message (for example `Verify your account to continue.`), when available
 - Which known patterns matched (e.g. `infring`, `abus`, `suspend` — from a fixed allowlist)
 - Model being requested, quota timer type, quota percentage
 - Account request velocity (requests/hour), concurrent requests, lifetime requests
@@ -29,7 +30,7 @@ Flag data is the most valuable signal. It lets us study what behavior patterns l
 - OAuth tokens or API keys
 - Google project IDs
 - Request/response bodies
-- Error message text (only which known keywords matched)
+- Raw error responses, links, account addresses, and credential-bearing messages
 - IP addresses (not part of the JSON payload; transport layer only)
 
 ## Opting Out

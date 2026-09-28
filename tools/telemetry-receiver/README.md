@@ -137,9 +137,11 @@ Each JSONL line:
 curl -H "Authorization: Bearer YOUR_STATS_TOKEN" https://telemetry.yourdomain.com/v1/stats | jq .
 ```
 
+Flag events are also written to daily `-flags.jsonl` files. The protected stats response includes `flags.byReasonCode` and `flags.recentIncidents` (up to 50, with anonymous install ID, HTTP status, provider code, filtered message, and model). The protected `/dashboard` displays both the reason counts and recent incidents. Older flag events without a provider reason remain valid and appear as `UNKNOWN`.
+
 ## Security
 
-- **No PII is stored in telemetry event files**: no emails, tokens, project IDs, request bodies, or error text
+- **No PII is stored in telemetry event files**: no emails, tokens, project IDs, request bodies, or raw error responses. Flag events can include a bounded provider reason code and filtered short message; messages containing links, account addresses, or credential markers are rejected.
 - Source IPs are used transiently for in-memory rate limiting and may be visible to your network, host, or reverse-proxy logs. The receiver does not write IPs into telemetry JSONL event files.
 - Email-pattern detection in validation: payloads containing `@` email patterns are rejected
 - Payloads capped at 4KB

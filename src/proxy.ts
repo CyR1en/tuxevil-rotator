@@ -83,6 +83,7 @@ import { logger } from "./logger.js";
 import {
   trackFeature,
   reportFlagEvent,
+  extractFlagReason,
   FLAG_PATTERNS,
   type FlagPattern,
 } from "./telemetry.js";
@@ -608,6 +609,7 @@ async function handleUpstreamAccountAction(
     const ctx401 = rotator.getFlagContext(account, modelKey);
     reportFlagEvent({
       flagHttpStatus: 401,
+      ...extractFlagReason(action.errorText),
       flagPatternsMatched:
         matched401.length > 0 ? matched401 : ["blocked_401" as FlagPattern],
       model: modelKey,
@@ -650,6 +652,7 @@ async function handleUpstreamAccountAction(
     const ctx403 = rotator.getFlagContext(account, modelKey);
     reportFlagEvent({
       flagHttpStatus: 403,
+      ...extractFlagReason(action.errorText),
       flagPatternsMatched: matchedPatterns,
       model: modelKey,
       timerType: ctx403.timerType as FlagEventData["timerType"],

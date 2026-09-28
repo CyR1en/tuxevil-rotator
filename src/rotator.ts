@@ -34,6 +34,7 @@ import {
 import { dynamicCatalog } from "./providers/google-antigravity/dynamic-catalog.js";
 import {
   reportFlagEvent,
+  extractFlagReason,
   FLAG_PATTERNS,
   type FlagEventData,
 } from "./telemetry.js";
@@ -1093,15 +1094,17 @@ export class AccountRotator {
     account: AccountRuntime,
     statusCode: number,
     errorText: string,
+    model = "quota-poll",
   ): void {
-    const modelKey = account.quota[0]?.modelKey ?? "quota-poll";
+    const modelKey = model === "quota-poll" ? account.quota[0]?.modelKey ?? model : model;
     const ctx = this.getFlagContext(account, modelKey);
     const lower = errorText.toLowerCase();
     const matchedPatterns = FLAG_PATTERNS.filter((p) => lower.includes(p));
     reportFlagEvent({
       flagHttpStatus: statusCode,
+      ...extractFlagReason(errorText),
       flagPatternsMatched: matchedPatterns.length > 0 ? matchedPatterns : [],
-      model: "quota-poll",
+      model,
       timerType: ctx.timerType as FlagEventData["timerType"],
       accountQuotaPercent: ctx.accountQuotaPercent,
       wasProAccount: ctx.wasProAccount,
@@ -4864,6 +4867,7 @@ export class AccountRotator {
       if (target.providerId === "openai-codex") {
         this.markProviderInvalid(account, target.providerId, failure.description);
       } else if (failure.accountEnforcement) {
+        this.reportQuotaPollFlag(account, response.status, errorText, upstreamModel);
         this.markFlagged(account, failure.description, { triggerProtectivePause: false });
       } else {
         account.lastError = failure.description;

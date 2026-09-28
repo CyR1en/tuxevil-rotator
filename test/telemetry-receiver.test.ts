@@ -54,6 +54,8 @@ describe("telemetry receiver", () => {
 			ts: new Date().toISOString(),
 			flag: {
 				flagHttpStatus: 403,
+				flagReasonCode: "VALIDATION_REQUIRED",
+				flagReasonMessage: "Verify your account to continue.",
 				flagPatternsMatched: ["violat", "blocked_401"],
 				model: "quota-poll",
 				timerType: "7d",
@@ -83,7 +85,32 @@ describe("telemetry receiver", () => {
 		const line = JSON.parse(raw.trim().split("\n")[0]);
 		assert.equal(line.installId, "test-install");
 		assert.equal(line.flagHttpStatus, 403);
+		assert.equal(line.flagReasonCode, "VALIDATION_REQUIRED");
+		assert.equal(line.flagReasonMessage, "Verify your account to continue.");
 		assert.deepEqual(line.flagPatternsMatched, ["violat", "blocked_401"]);
+
+		const statsRes = await fetch(`http://127.0.0.1:${port}/v1/stats`, {
+			headers: { Authorization: "Bearer secret-token" },
+		});
+		assert.equal(statsRes.status, 200);
+		const stats = (await statsRes.json()) as any;
+		assert.equal(stats.flags.byReasonCode.VALIDATION_REQUIRED, 1);
+		assert.equal(stats.flags.recentIncidents[0].flagReasonMessage, "Verify your account to continue.");
+
+		const unsafe = structuredClone(payload);
+		unsafe.flag.flagReasonMessage = "Verify at https://example.test/account";
+		const unsafeRes = await fetch(`http://127.0.0.1:${port}/v1/events`, {
+			method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(unsafe),
+		});
+		assert.equal(unsafeRes.status, 400);
+
+		const legacy = structuredClone(payload);
+		delete (legacy.flag as Partial<typeof legacy.flag>).flagReasonCode;
+		delete (legacy.flag as Partial<typeof legacy.flag>).flagReasonMessage;
+		const legacyRes = await fetch(`http://127.0.0.1:${port}/v1/events`, {
+			method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(legacy),
+		});
+		assert.equal(legacyRes.status, 202);
 	});
 
 	it("does not expose historical notifications without the admin token", async () => {
@@ -135,6 +162,8 @@ describe("telemetry receiver", () => {
 		assert.match(html, /id="refreshBtn"/);
 		assert.match(html, /id="filterBar"/);
 		assert.match(html, /id="cHealth"/);
+		assert.match(html, /id="cFlagReasons"/);
+		assert.match(html, /id="flagIncidents"/);
 		assert.match(html, /id="installTableWrap"/);
 		assert.match(html, /localStorage\.getItem\('st'\)/);
 

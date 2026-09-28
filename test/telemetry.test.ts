@@ -8,12 +8,28 @@ import {
 	warnIfInsecureTelemetryEndpoint,
 	resolveTelemetryEndpoint,
 	FLAG_PATTERNS,
+	extractFlagReason,
 } from "../src/telemetry.js";
 import { logger } from "../src/logger.js";
 import type { TelemetryPayload, FlagEventData, FlagTelemetryPayload } from "../src/telemetry.js";
 import { resolveTelemetryBase } from "../src/notification-poller.js";
 
 describe("telemetry", () => {
+	it("extracts a safe provider 403 reason without transmitting raw details", () => {
+		const error = JSON.stringify({ error: {
+			status: "PERMISSION_DENIED",
+			message: "Verify your account to continue.",
+			details: [{ reason: "VALIDATION_REQUIRED", metadata: { verificationUrl: "https://example.test" } }],
+		} });
+		assert.deepEqual(extractFlagReason(error), {
+			flagReasonCode: "VALIDATION_REQUIRED",
+			flagReasonMessage: "Verify your account to continue.",
+		});
+		assert.deepEqual(extractFlagReason(JSON.stringify({ error: {
+			status: "PERMISSION_DENIED", message: "Verify at https://example.test/user@example.test",
+		} })), { flagReasonCode: "PERMISSION_DENIED" });
+	});
+
 	const originalEnv = process.env.PI_ROTATOR_TELEMETRY;
 
 	afterEach(() => {
@@ -198,6 +214,8 @@ describe("telemetry", () => {
 
 		const sampleFlagData: FlagEventData = {
 			flagHttpStatus: 403,
+			flagReasonCode: "VALIDATION_REQUIRED",
+			flagReasonMessage: "Verify your account to continue.",
 			flagPatternsMatched: ["infring", "violat"],
 			model: "claude-opus-4-6-thinking",
 			timerType: "5h",
@@ -222,6 +240,8 @@ describe("telemetry", () => {
 			assert.equal(typeof payload.version, "string");
 			assert.equal(typeof payload.ts, "string");
 			assert.deepEqual(payload.flag, sampleFlagData);
+			assert.equal(payload.flag.flagReasonCode, "VALIDATION_REQUIRED");
+			assert.equal(payload.flag.flagReasonMessage, "Verify your account to continue.");
 		});
 
 		it("flag payload contains NO email or PII", () => {

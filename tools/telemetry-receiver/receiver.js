@@ -213,6 +213,9 @@ function isFlagPayload(data) {
 	if (typeof flag.protectivePauseTriggered !== "boolean") return false;
 	if (typeof flag.uptimeSeconds !== "number") return false;
 	if (typeof flag.timeSinceLastFlagSeconds !== "number") return false;
+	if (flag.flagReasonCode !== undefined &&
+		(typeof flag.flagReasonCode !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(flag.flagReasonCode))) return false;
+	if (flag.flagReasonMessage !== undefined && !isSafeFlagReasonMessage(flag.flagReasonMessage)) return false;
 
 	const serialized = JSON.stringify(data);
 	if (serialized.includes("@") && /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]/.test(serialized)) {
@@ -220,6 +223,11 @@ function isFlagPayload(data) {
 	}
 
 	return true;
+}
+
+function isSafeFlagReasonMessage(message) {
+	return typeof message === "string" && message.length > 0 && message.length <= 160 &&
+		!/(?:https?:\/\/|@|bearer\s|access[_ -]?token|refresh[_ -]?token|api[_ -]?key)/i.test(message);
 }
 
 function isValidPayload(data) {
@@ -283,6 +291,10 @@ function sanitizeFlagData(flag) {
 	]);
 	return {
 		flagHttpStatus: typeof flag.flagHttpStatus === "number" ? flag.flagHttpStatus : 0,
+		...(typeof flag.flagReasonCode === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(flag.flagReasonCode)
+			? { flagReasonCode: flag.flagReasonCode } : {}),
+		...(isSafeFlagReasonMessage(flag.flagReasonMessage)
+			? { flagReasonMessage: flag.flagReasonMessage } : {}),
 		flagPatternsMatched: Array.isArray(flag.flagPatternsMatched)
 			? flag.flagPatternsMatched.filter((p) => ALLOWED_PATTERNS.has(p))
 			: [],
@@ -636,6 +648,7 @@ function computeStats(filters = {}) {
 
 	// Flag aggregates
 	const flagsByStatus = Object.create(null);
+	const flagsByReasonCode = Object.create(null);
 	const flagsByPattern = Object.create(null);
 	const flagsByModel = Object.create(null);
 	const flagsByTimerType = Object.create(null);
@@ -648,6 +661,8 @@ function computeStats(filters = {}) {
 	for (const { fl } of flagEvents) {
 		flagCount++;
 		flagsByStatus[fl.flagHttpStatus] = (flagsByStatus[fl.flagHttpStatus] || 0) + 1;
+		const reasonCode = fl.flagReasonCode || "UNKNOWN";
+		flagsByReasonCode[reasonCode] = (flagsByReasonCode[reasonCode] || 0) + 1;
 		for (const p of fl.flagPatternsMatched || []) flagsByPattern[p] = (flagsByPattern[p] || 0) + 1;
 		if (fl.model) flagsByModel[fl.model] = (flagsByModel[fl.model] || 0) + 1;
 		if (fl.timerType) flagsByTimerType[fl.timerType] = (flagsByTimerType[fl.timerType] || 0) + 1;
@@ -656,6 +671,7 @@ function computeStats(filters = {}) {
 		flagRequestsTotal += fl.accountTotalRequests || 0;
 		const signature = JSON.stringify({
 			status: fl.flagHttpStatus,
+			reasonCode: fl.flagReasonCode || "",
 			patterns: [...(fl.flagPatternsMatched || [])].sort(),
 			model: fl.model || "",
 			timerType: fl.timerType || "",
@@ -668,6 +684,19 @@ function computeStats(filters = {}) {
 
 	const avgRequestsBeforeFlag = flagCount > 0 ? Math.round(flagRequestsTotal / flagCount) : 0;
 	const uniqueFlagIncidents = uniqueFlagSignatures.size;
+	const recentIncidents = flagEvents
+		.map(({ fl }) => ({
+			installId: fl.installId,
+			ts: fl.ts,
+			receivedAt: fl.receivedAt,
+			flagHttpStatus: fl.flagHttpStatus,
+			flagReasonCode: fl.flagReasonCode || "UNKNOWN",
+			flagReasonMessage: fl.flagReasonMessage || "",
+			flagPatternsMatched: fl.flagPatternsMatched || [],
+			model: fl.model || "unknown",
+		}))
+		.sort((a, b) => String(b.receivedAt || b.ts).localeCompare(String(a.receivedAt || a.ts)))
+		.slice(0, 50);
 
 	// Build filter options from ALL events (unfiltered) for dropdown population
 	const filterOptions = buildFilterOptions(allEvents, allFlagEvents);
@@ -696,6 +725,8 @@ function computeStats(filters = {}) {
 			totalFlags: totalFlags + flagCount,
 			uniqueIncidents: uniqueFlagIncidents,
 			byHttpStatus: flagsByStatus,
+			byReasonCode: flagsByReasonCode,
+			recentIncidents,
 			byPattern: flagsByPattern,
 			byModel: flagsByModel,
 			byTimerType: flagsByTimerType,
@@ -1070,6 +1101,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;padd
         <div class="section-title"><div><div class="section-kicker">Safety signals</div><h2>Flag analysis</h2><p>Patterns that need operator attention.</p></div></div>
         <div class="flag-kpis" id="flagKpis"></div>
         <div class="charts"><div class="chart-box"><h2>By pattern</h2><canvas id="cPatterns"></canvas></div><div class="chart-box"><h2>By model</h2><canvas id="cFlagModels"></canvas></div><div class="chart-box"><h2>By timer type</h2><canvas id="cTimerType"></canvas></div></div>
+        <div class="charts"><div class="chart-box"><h2>By provider reason</h2><canvas id="cFlagReasons"></canvas></div></div>
+        <h3>Recent flag incidents</h3><div id="flagIncidents"></div>
       </section>
       <section class="section">
         <div class="section-title"><div><div class="section-kicker">Consumption</div><h2>Token usage by model</h2><p>Input, output and request volume for the selected cohort.</p></div></div>
@@ -1255,8 +1288,11 @@ function render(d, filters={}){
     {l:'Avg Requests Before Flag',v:fmt(fl.avgRequestsBeforeFlag||0)},
   ].map(k=>'<div class="flag-kpi"><div class="label">'+esc(k.l)+'</div><div class="value">'+esc(k.v)+'</div></div>').join('');
   mkChart('cPatterns','bar',Object.keys(fl.byPattern||{}),[{label:'Count',data:Object.values(fl.byPattern||{}),backgroundColor:R}]);
+  mkChart('cFlagReasons','bar',Object.keys(fl.byReasonCode||{}),[{label:'Count',data:Object.values(fl.byReasonCode||{}),backgroundColor:R}]);
   mkChart('cFlagModels','doughnut',Object.keys(fl.byModel||{}),[{data:Object.values(fl.byModel||{}),backgroundColor:C}]);
   mkChart('cTimerType','doughnut',Object.keys(fl.byTimerType||{}),[{data:Object.values(fl.byTimerType||{}),backgroundColor:['#63b3ed','#f6e05e','#68d391']}]);
+  const incidentRows=(fl.recentIncidents||[]).map(i=>'<tr><td>'+esc(i.receivedAt||i.ts||'—')+'</td><td class="mono">'+esc(i.installId||'—')+'</td><td>'+esc(i.flagHttpStatus||'—')+'</td><td class="mono">'+esc(i.flagReasonCode||'UNKNOWN')+'</td><td>'+esc(i.flagReasonMessage||'—')+'</td><td class="mono">'+esc(i.model||'—')+'</td></tr>').join('');
+  $('flagIncidents').innerHTML=incidentRows?'<div style="overflow-x:auto"><table><thead><tr><th>Received</th><th>Install</th><th>HTTP</th><th>Provider reason</th><th>Provider message</th><th>Model</th></tr></thead><tbody>'+incidentRows+'</tbody></table></div>':'<div class="empty">No flag incidents yet</div>';
 
   const tk=d.tokensByModel||{};
   $('tokTable').innerHTML=Object.keys(tk).length?'<table><thead><tr><th>Model</th><th>Input Tokens</th><th>Output Tokens</th><th>Requests</th></tr></thead><tbody>'+Object.entries(tk).map(([m,v])=>'<tr><td class="mono">'+esc(m)+'</td><td>'+fmt(v.input)+'</td><td>'+fmt(v.output)+'</td><td>'+fmt(v.requests)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">No token data yet</div>';

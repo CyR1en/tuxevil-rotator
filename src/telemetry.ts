@@ -60,6 +60,34 @@ export const FLAG_PATTERNS = [
 ] as const;
 export type FlagPattern = typeof FLAG_PATTERNS[number];
 
+/** Keep provider reasons useful for diagnosis without sending raw errors or links. */
+export function extractFlagReason(errorText: string): {
+	flagReasonCode?: string;
+	flagReasonMessage?: string;
+} {
+	let code: unknown;
+	let message: unknown;
+	try {
+		const parsed = JSON.parse(errorText) as {
+			error?: { status?: unknown; message?: unknown; details?: Array<{ reason?: unknown }> };
+		};
+		code = parsed.error?.details?.find((detail) => typeof detail?.reason === "string")?.reason
+			?? parsed.error?.status;
+		message = parsed.error?.message;
+	} catch {
+		message = errorText;
+	}
+	const flagReasonCode = typeof code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(code)
+		? code : undefined;
+	const rawMessage = typeof message === "string" ? message.trim().replace(/\s+/g, " ") : "";
+	// Provider errors can include verification URLs, account addresses, and tokens.
+	const flagReasonMessage = rawMessage &&
+		!/(?:https?:\/\/|@|bearer\s|access[_ -]?token|refresh[_ -]?token|api[_ -]?key)/i.test(rawMessage)
+		? rawMessage.slice(0, 160) : undefined;
+	return { ...(flagReasonCode ? { flagReasonCode } : {}),
+		...(flagReasonMessage ? { flagReasonMessage } : {}) };
+}
+
 // ── Version ──────────────────────────────────────────────────────────
 let _version: string | null = null;
 function getVersion(): string {
@@ -206,12 +234,14 @@ export interface TelemetryPayload {
 // This is the most important telemetry signal — it drives anti-flag
 // algorithm improvements that benefit all users.
 //
-// NO PII in the payload: no email, no error text, no projectId, no request body.
-// Only structured, anonymous context about what happened.
+// NO PII in the payload: no email, raw error body, projectId, or request body.
+// Reason code and bounded message are filtered before transmission.
 export interface FlagEventData {
 	// What triggered it
 	flagHttpStatus: number;                  // 401 or 403
 	flagPatternsMatched: FlagPattern[];      // which known patterns matched
+	flagReasonCode?: string;                 // upstream reason, e.g. VALIDATION_REQUIRED
+	flagReasonMessage?: string;              // bounded message after privacy filtering
 
 	// What was happening
 	model: string;                           // model key being requested
