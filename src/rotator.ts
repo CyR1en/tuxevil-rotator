@@ -205,6 +205,30 @@ const QUOTA_POOL_FOR_KICKSTART_MODEL: Record<string, string> = {
   "gpt-oss:20b": "session",
 };
 
+function describeKickstartAuthFailure(status: number, upstreamModel: string, body: string): {
+  description: string;
+  accountEnforcement: boolean;
+} {
+  let message = "";
+  let reason = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown; details?: Array<{ reason?: unknown }> } };
+    if (typeof parsed.error?.message === "string") message = parsed.error.message;
+    const detail = parsed.error?.details?.find((entry) => typeof entry.reason === "string");
+    if (typeof detail?.reason === "string") reason = detail.reason;
+  } catch {
+    message = body;
+  }
+  const detailText = [message.slice(0, 200), reason ? `(${reason.slice(0, 80)})` : ""]
+    .filter(Boolean).join(" ");
+  const accountEnforcement = status === 401 ||
+    /verif|infring|suspend|abus|terminat|violat|banned|account.*policy/i.test(`${message} ${reason}`);
+  return {
+    description: `kickstart ${status} on ${upstreamModel}${detailText ? `: ${detailText}` : ""}`,
+    accountEnforcement,
+  };
+}
+
 export class AccountRotator {
   private accounts: AccountRuntime[] = [];
   // Per-model active account tracking
@@ -388,6 +412,7 @@ export class AccountRotator {
   private routingWarningLastLoggedAt = new Map<string, number>();
   private static readonly ROUTING_WARNING_DEDUP_MS = 60_000;
   private autoWarmupEnabled = false;
+  private readonly kickstartDeniedUntil = new Map<string, number>();
   // Debounced state writer: batches multiple saveState() calls within a 1s window
   // to a single disk write. Hot paths (markError, recordRequest, etc.) call
   // scheduleStateSave() instead of saveState() to avoid blocking the event loop.
@@ -614,6 +639,7 @@ export class AccountRotator {
           account.quotaExhaustedAt = saved.quotaExhaustedAt;
           account.disabled = saved.disabled;
           account.flagged = saved.flagged ?? false;
+          if (account.flagged && saved.flagReason) account.lastError = saved.flagReason;
           account.allowFreshWindowStartsOverride =
             saved.allowFreshWindowStartsOverride ?? false;
         }
@@ -778,6 +804,7 @@ export class AccountRotator {
         quotaExhaustedAt: account.quotaExhaustedAt,
         disabled: account.disabled,
         flagged: account.flagged,
+        flagReason: account.flagged ? account.lastError : null,
         allowFreshWindowStartsOverride: account.allowFreshWindowStartsOverride,
       };
     }
@@ -4660,6 +4687,16 @@ export class AccountRotator {
       };
     }
 
+    const denialKey = `${email}\0${target.upstreamModel}`;
+    if ((this.kickstartDeniedUntil.get(denialKey) ?? 0) > Date.now()) {
+      return {
+        ok: false,
+        status: 403,
+        upstreamModel: target.upstreamModel,
+        error: "kickstart temporarily skipped after model-specific 403",
+      };
+    }
+
     try {
       await this.ensureValidTokenForProvider(account, target.providerId);
     } catch (err) {
@@ -4775,7 +4812,7 @@ export class AccountRotator {
     }
 
     let errorText = "";
-    if (response.status === 429) {
+    if (response.status === 429 || response.status === 401 || response.status === 403) {
       errorText = await response.text().catch(() => "");
     } else {
       // Consume and discard the response body to free the connection.
@@ -4823,13 +4860,17 @@ export class AccountRotator {
     }
 
     if (response.status === 401 || response.status === 403) {
-      const reason = `kickstart ${response.status} on ${upstreamModel}`;
+      const failure = describeKickstartAuthFailure(response.status, upstreamModel, errorText);
       if (target.providerId === "openai-codex") {
-        this.markProviderInvalid(account, target.providerId, reason);
+        this.markProviderInvalid(account, target.providerId, failure.description);
+      } else if (failure.accountEnforcement) {
+        this.markFlagged(account, failure.description, { triggerProtectivePause: false });
       } else {
-        this.markFlagged(account, reason, { triggerProtectivePause: false });
+        account.lastError = failure.description;
+        this.kickstartDeniedUntil.set(denialKey, Date.now() + 30 * 60 * 1000);
+        this.log(`${label}: ${failure.description}; retrying kickstart after 30 minutes`, "warn");
       }
-      return { ok: false, status: response.status, upstreamModel };
+      return { ok: false, status: response.status, upstreamModel, error: failure.description };
     }
 
     if (response.status >= 500) {

@@ -22,7 +22,7 @@ delete process.env.PI_ROTATOR_DATABASE_URL;
 // These modules resolve their config paths during import, so load them only
 // after the isolated test directory has been selected above.
 const { AccountRotator } = await import("../src/rotator.js");
-const { initDb, closeDb } = await import("../src/db-store.js");
+const { initDb, closeDb, getCachedState } = await import("../src/db-store.js");
 const { setPersistedAdminToken } = await import("../src/admin-auth.js");
 const { getProviderAdapter } = await import("../src/providers/registry.js");
 const { clearCodexQuotaCache, CODEX_UNSTARTED_TIMER_THRESHOLD_SECONDS } = await import("../src/providers/openai-codex/quota.js");
@@ -581,6 +581,61 @@ describe("v2 routing and status", () => {
       assert.deepEqual(recordedPools, ["session"]);
       assert.equal(quotaPolls, 1, "a direct kickstart must refresh quota immediately");
       assert.equal(providerAdapterForModel(account, "gpt-oss:20b", rotator).id, "ollama");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("keeps the provider verification reason when a kickstart flags an account", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: {
+        status: "PERMISSION_DENIED",
+        message: "Verify your account to continue.",
+        details: [{ reason: "VALIDATION_REQUIRED" }],
+      },
+    }), { status: 403 })) as typeof fetch;
+
+    try {
+      const rotator = new AccountRotator(makeConfig()) as any;
+      rotator.stopQuotaPolling();
+      const account = rotator.accounts[0];
+      account.accessToken = "test-access-token";
+      account.tokenExpires = Date.now() + 60_000;
+
+      const result = await rotator.kickstartTimerForAccount("a@example.com", "claude", false);
+      assert.equal(result.status, 403);
+      assert.equal(account.flagged, true);
+      assert.match(account.lastError, /Verify your account to continue/);
+      assert.match(account.lastError, /VALIDATION_REQUIRED/);
+      await rotator.saveState();
+      assert.equal(getCachedState()?.accounts["a@example.com"].flagReason, account.lastError);
+      account.flagged = false;
+      account.lastError = null;
+      await rotator.saveState();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not flag an account for a model-specific kickstart 403", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: { status: "PERMISSION_DENIED", message: "Model is not available for this account." },
+    }), { status: 403 })) as typeof fetch;
+
+    try {
+      const rotator = new AccountRotator(makeConfig()) as any;
+      rotator.stopQuotaPolling();
+      const account = rotator.accounts[1];
+      account.accessToken = "test-access-token";
+      account.tokenExpires = Date.now() + 60_000;
+
+      const result = await rotator.kickstartTimerForAccount("b@example.com", "claude", false);
+      assert.equal(result.status, 403);
+      assert.equal(account.flagged, false);
+      assert.equal(account.disabled, false);
+      assert.match(account.lastError, /Model is not available/);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -603,6 +603,7 @@ export interface PersistedState {
       quotaExhaustedAt: number;
       disabled: boolean;
       flagged: boolean;
+      flagReason?: string | null;
       allowFreshWindowStartsOverride?: boolean;
     }
   >;
