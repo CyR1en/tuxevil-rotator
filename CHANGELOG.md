@@ -2,14 +2,24 @@
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-09-28
+
+### Added
+
+- **Rotator-backed audio transcription and live streaming**: `/v1/audio/transcriptions` and live WebSocket sessions use active Antigravity accounts for Gemini transcription, with Language Server fallback after rotator failures and timeouts. Model scopes follow the executed model; live sessions preserve segment order, use bounded deadlines, echo Ping payloads, and honor client cancellation ([PR #36](https://github.com/tuxevil/tuxevil-rotator/pull/36) by [@javargasm](https://github.com/javargasm)).
+- **Actionable account-flag telemetry**: flag events can carry Google's reason code and a short privacy-filtered message. The reference receiver stores the reason, reports counts by reason, and lists recent incidents in its protected dashboard.
+
 ### Improved
 
-- **Rotator-backed audio transcription and live streaming**: `/v1/audio/transcriptions` and live WebSocket sessions use active Antigravity accounts for Gemini transcription, with the Language Server as fallback after rotator failures and timeouts. Requested aliases are checked against the executed model while legacy audio-key access remains limited to the default audio route. Live sessions preserve ordered segment commits, enforce bounded deadlines, echo WebSocket Ping payloads, and honor client cancellation ([PR #36](https://github.com/tuxevil/tuxevil-rotator/pull/36) by [@javargasm](https://github.com/javargasm)).
+- **Google account-verification diagnostics**: account-enforcement responses retain Google's reason and message in the rotator's flag state, including kickstart failures, so operators can tell account verification requirements from model-specific access errors.
+- **Claude tool-schema compatibility**: Claude tool schemas sent through Gemini drop unsupported `uniqueItems` and normalize boolean enums while retaining valid string enums, fixing tool requests such as Claude Opus 4.6 Thinking.
 
 ### Fixed
-- **Ollama Content Array Normalization**: message `content` arrays (OpenAI-style blocks, e.g. from multimodal requests) are flattened to plain strings and `image_url` blocks are moved to the native `images` field before forwarding to Ollama Cloud, whose Go API rejects `messages[].content` arrays with `cannot unmarshal array` errors. Ported from ollama-rotator `ec5fa5a`; applies to the native `/api/chat` route and all v1 compat adapters.
-- **Native `/api/chat` Payload Parsing**: the native route now parses the Ollama payload shape (`{model, messages, stream, options}`) before internal validation, which previously rejected every native request with `400 body.request is required`. Requires `model` and a non-empty `messages` array.
-- **Ollama Catalog at Startup**: the Ollama Cloud model catalog is fetched once at boot (previously only inside quota poll cycles, every ~5 min), so provider-aware routing and `GET /v1/models` see Ollama models immediately.
+
+- **Gemini tool responses with schema references**: unresolved `$ref` values in function responses are preserved as text instead of being reinterpreted as Gemini's special response-part metadata.
+- **Ollama content-array normalization**: multimodal OpenAI-style content arrays are flattened to text and image blocks are moved into Ollama's native `images` field.
+- **Native Ollama chat requests and startup discovery**: `/api/chat` now accepts Ollama's native request shape, and the Ollama model catalog is loaded at startup so routing and `/v1/models` see it immediately.
+- **Ollama tool arguments and quota reporting**: JSON-encoded tool arguments are normalized for Ollama, and monthly quota pools are parsed and reported consistently.
 
 ## [3.9.0] - 2026-09-22
 
