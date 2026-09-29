@@ -2,7 +2,7 @@
 
 import { createInterface } from "node:readline";
 import type { AccountConfig } from "../../types.js";
-import { OPENCODE_ZEN_MODELS_URL } from "./catalog.js";
+import { OPENCODE_ZEN_MODELS_URL, OPENCODE_ZEN_USER_AGENT } from "./catalog.js";
 import { defaultAccountEmail, OPENCODE_ZEN_PROVIDER_ID } from "./credentials.js";
 
 function askQuestion(prompt: string): Promise<string> {
@@ -24,6 +24,7 @@ export async function validateApiKey(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
+        "User-Agent": OPENCODE_ZEN_USER_AGENT,
       },
     });
 

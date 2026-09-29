@@ -6,6 +6,7 @@ import {
   OPENCODE_ZEN_FREE_MODELS,
   OPENCODE_ZEN_RESPONSES_URL,
   OPENCODE_ZEN_MODELS_URL,
+  OPENCODE_ZEN_USER_AGENT,
   isOpenCodeZenResponsesModel,
   isOpenCodeZenModel,
 } from "../src/providers/opencode-zen/catalog.js";
@@ -25,6 +26,7 @@ import {
   getBenchmarkSpec,
 } from "../src/providers/opencode-zen/forward.js";
 import { fetchOpenCodeZenQuota } from "../src/providers/opencode-zen/quota.js";
+import { validateApiKey } from "../src/providers/opencode-zen/login.js";
 import { parseOpenAiJson, anthropicToOpenAIChatRequest } from "../src/compat.js";
 import type { AccountRuntime } from "../src/types.js";
 import type { QuotaFetchContext } from "../src/providers/adapter.js";
@@ -329,7 +331,7 @@ describe("OpenCode Zen Provider Adapter", () => {
           messages: [{ role: "user", content: "Hello" }],
           stream: true,
         },
-      }, {});
+      }, { "user-agent": "OpenAI/1.0.0" });
       const chatSse = await forwarded.response.text();
 
       assert.equal(capturedUrl, OPENCODE_ZEN_RESPONSES_URL);
@@ -339,7 +341,7 @@ describe("OpenCode Zen Provider Adapter", () => {
       assert.match(chatSse, /"cached_tokens":2/);
       assert.equal(capturedHeaders?.get("x-opencode-session"), null);
       assert.equal(capturedHeaders?.get("x-opencode-client"), null);
-      assert.equal(capturedHeaders?.get("user-agent"), null);
+      assert.equal(capturedHeaders?.get("user-agent"), OPENCODE_ZEN_USER_AGENT);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -381,7 +383,9 @@ describe("OpenCode Zen Provider Adapter", () => {
 
     // Global fetch mock for testing
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string | URL | Request) => {
+    let capturedUserAgent: string | null = null;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      capturedUserAgent = new Headers(init?.headers).get("user-agent");
       const urlStr = typeof url === "string" ? url : url.toString();
       if (urlStr === OPENCODE_ZEN_MODELS_URL) {
         return new Response(JSON.stringify({ object: "list", data: [] }), { status: 200 });
@@ -395,6 +399,23 @@ describe("OpenCode Zen Provider Adapter", () => {
       assert.equal(account.quota[0].providerId, OPENCODE_ZEN_PROVIDER_ID);
       assert.equal(account.quota[0].displayName, "OpenCode");
       assert.equal(account.quota[0].percentRemaining, 100);
+      assert.equal(capturedUserAgent, OPENCODE_ZEN_USER_AGENT);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("validates API keys with the OpenCode User-Agent", async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedUserAgent: string | null = null;
+    globalThis.fetch = (async (_url, init) => {
+      capturedUserAgent = new Headers(init?.headers).get("user-agent");
+      return new Response(JSON.stringify({ object: "list", data: [] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      assert.deepEqual(await validateApiKey("valid-key"), { ok: true });
+      assert.equal(capturedUserAgent, OPENCODE_ZEN_USER_AGENT);
     } finally {
       globalThis.fetch = originalFetch;
     }

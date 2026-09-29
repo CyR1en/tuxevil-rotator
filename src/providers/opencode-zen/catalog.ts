@@ -4,6 +4,8 @@ export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models";
 export const OPENCODE_ZEN_CHAT_URL = "https://opencode.ai/zen/v1/chat/completions";
 export const OPENCODE_ZEN_RESPONSES_URL = "https://opencode.ai/zen/v1/responses";
+export const OPENCODE_ZEN_USER_AGENT =
+  "opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
 
 export const OPENCODE_ZEN_FREE_MODELS = [
   "big-pickle",

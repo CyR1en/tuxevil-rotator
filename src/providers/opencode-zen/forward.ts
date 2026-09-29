@@ -14,6 +14,7 @@ import {
   isOpenCodeZenResponsesModel,
   OPENCODE_ZEN_CHAT_URL,
   OPENCODE_ZEN_RESPONSES_URL,
+  OPENCODE_ZEN_USER_AGENT,
 } from "./catalog.js";
 import { isRecord } from "../../compat/schema-sanitizer.js";
 import type {
@@ -244,18 +245,20 @@ function buildOpenCodeZenHeaders(
       !HOP_BY_HOP.has(lower) &&
       lower !== "authorization" &&
       lower !== "content-type" &&
-      lower !== "accept"
+      lower !== "accept" &&
+      lower !== "user-agent"
     ) {
       headers[key] = value;
     }
   }
 
+  headers["User-Agent"] = OPENCODE_ZEN_USER_AGENT;
+
   // OpenCode sends x-opencode-session directly for provider IDs beginning
   // with `opencode`. For custom provider IDs it sends the same real session
   // under x-session-affinity and X-Session-Id. Forward that value under the
-  // upstream's expected name only when the incoming User-Agent is OpenCode;
-  // never fabricate client identity or session context for other callers.
-  const userAgent = headerValue(headers, "user-agent");
+  // upstream's expected name only when the incoming User-Agent is OpenCode.
+  const userAgent = headerValue(originalHeaders, "user-agent");
   if (
     !headerValue(headers, "x-opencode-session") &&
     userAgent?.toLowerCase().startsWith("opencode/")

@@ -4,7 +4,7 @@ import { fetchWithRetry } from "../../fetch-with-retry.js";
 import type { AccountRuntime, ModelQuota } from "../../types.js";
 import type { QuotaFetchContext } from "../adapter.js";
 import { getAccountProxyDispatcher } from "../proxy-dispatcher.js";
-import { OPENCODE_ZEN_MODELS_URL } from "./catalog.js";
+import { OPENCODE_ZEN_MODELS_URL, OPENCODE_ZEN_USER_AGENT } from "./catalog.js";
 import { getOpenCodeZenApiKey, OPENCODE_ZEN_PROVIDER_ID } from "./credentials.js";
 import { sortQuotaPools } from "../registry.js";
 
@@ -21,6 +21,7 @@ export async function fetchOpenCodeZenQuota(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
+        "User-Agent": OPENCODE_ZEN_USER_AGENT,
       },
       timeoutMs: 8000,
       dispatcher: getAccountProxyDispatcher(account, OPENCODE_ZEN_PROVIDER_ID),
