@@ -937,6 +937,13 @@ describe("effort-based routing endpoint e2e", () => {
 		];
 		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
 		const upstreamBodies: Array<Record<string, unknown>> = [];
+		const openCodeSession = "ses_01999abc1234AbCdEfGhIjKlMn";
+		const openCodeUserAgent = "opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+		const openCodeHeaders = {
+			"User-Agent": openCodeUserAgent,
+			"x-session-affinity": openCodeSession,
+			"X-Session-Id": openCodeSession,
+		};
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async (input, init) => {
 			if (String(input) !== OPENCODE_ZEN_RESPONSES_URL) {
@@ -945,8 +952,10 @@ describe("effort-based routing endpoint e2e", () => {
 			const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
 			upstreamBodies.push(body);
 			const headers = new Headers(init?.headers);
-			assert.ok(headers.get("x-opencode-session"));
-			assert.ok(headers.get("x-opencode-request"));
+			assert.equal(headers.get("x-opencode-session"), openCodeSession);
+			assert.equal(headers.get("user-agent"), openCodeUserAgent);
+			assert.equal(headers.get("x-opencode-client"), null);
+			assert.equal(headers.get("x-opencode-request"), null);
 			if (body.stream === true) {
 				return new Response([
 					"event: response.output_text.delta\n",
@@ -972,7 +981,7 @@ describe("effort-based routing endpoint e2e", () => {
 		try {
 			const nonStream = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...openCodeHeaders },
 				body: JSON.stringify({
 					model: "muse-spark-1.3-contributor-free",
 					input: "Hello",
@@ -991,7 +1000,7 @@ describe("effort-based routing endpoint e2e", () => {
 
 			const stream = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...openCodeHeaders },
 				body: JSON.stringify({
 					model: "muse-spark-1.3-contributor-free",
 					input: "Hello",

@@ -269,13 +269,23 @@ describe("OpenCode Zen Provider Adapter", () => {
           stream: false,
           max_tokens: 16,
         },
-      }, {});
+      }, {
+        "user-agent": "opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
+        "x-session-affinity": "ses_01999abc1234AbCdEfGhIjKlMn",
+        "x-session-id": "ses_01999abc1234AbCdEfGhIjKlMn",
+      });
 
       assert.equal(capturedUrl, OPENCODE_ZEN_RESPONSES_URL);
       const input = capturedBody.input as Array<{ role?: string }> | undefined;
       assert.equal(input?.[0]?.role, "user");
       assert.equal(capturedBody.max_output_tokens, 16);
-      assert.match(capturedHeaders?.get("x-opencode-session") ?? "", /^zen-session-/);
+      assert.equal(capturedHeaders?.get("x-opencode-session"), "ses_01999abc1234AbCdEfGhIjKlMn");
+      assert.equal(
+        capturedHeaders?.get("user-agent"),
+        "opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
+      );
+      assert.equal(capturedHeaders?.get("x-opencode-client"), null);
+      assert.equal(capturedHeaders?.get("x-opencode-request"), null);
       const chatResponse = await forwarded.response.json() as {
         object: string;
         choices: Array<{ message: { content: string } }>;
@@ -292,9 +302,10 @@ describe("OpenCode Zen Provider Adapter", () => {
   it("translates Muse Responses streams for Chat-compatible callers", async () => {
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
+    let capturedHeaders: Headers | undefined;
     globalThis.fetch = (async (input, init) => {
       capturedUrl = String(input);
-      assert.equal(new Headers(init?.headers).get("x-opencode-session")?.startsWith("zen-session-"), true);
+      capturedHeaders = new Headers(init?.headers);
       return new Response([
         'event: response.output_text.delta\n',
         'data: {"type":"response.output_text.delta","delta":"streamed"}\n\n',
@@ -326,6 +337,9 @@ describe("OpenCode Zen Provider Adapter", () => {
       assert.match(chatSse, /"prompt_tokens":3/);
       assert.match(chatSse, /"completion_tokens":2/);
       assert.match(chatSse, /"cached_tokens":2/);
+      assert.equal(capturedHeaders?.get("x-opencode-session"), null);
+      assert.equal(capturedHeaders?.get("x-opencode-client"), null);
+      assert.equal(capturedHeaders?.get("user-agent"), null);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -250,20 +250,20 @@ function buildOpenCodeZenHeaders(
     }
   }
 
-  // OpenCode's free tier requires these context headers. Native OpenCode
-  // emits them only for provider IDs beginning with `opencode`; the rotator
-  // is commonly configured under a custom provider ID, so fill safe defaults.
-  if (!headerValue(headers, "x-opencode-session")) {
-    headers["x-opencode-session"] = `zen-session-${body.requestId || randomUUID()}`;
-  }
-  if (!headerValue(headers, "x-opencode-request")) {
-    headers["x-opencode-request"] = `zen-request-${body.requestId || randomUUID()}`;
-  }
-  if (!headerValue(headers, "x-opencode-client")) {
-    headers["x-opencode-client"] = "tuxevil-rotator";
-  }
-  if (!headerValue(headers, "user-agent")) {
-    headers["User-Agent"] = "tuxevil-rotator/opencode-zen";
+  // OpenCode sends x-opencode-session directly for provider IDs beginning
+  // with `opencode`. For custom provider IDs it sends the same real session
+  // under x-session-affinity and X-Session-Id. Forward that value under the
+  // upstream's expected name only when the incoming User-Agent is OpenCode;
+  // never fabricate client identity or session context for other callers.
+  const userAgent = headerValue(headers, "user-agent");
+  if (
+    !headerValue(headers, "x-opencode-session") &&
+    userAgent?.toLowerCase().startsWith("opencode/")
+  ) {
+    const sessionId =
+      headerValue(headers, "x-session-affinity") ??
+      headerValue(headers, "x-session-id");
+    if (sessionId) headers["x-opencode-session"] = sessionId;
   }
 
   headers.Authorization = `Bearer ${getOpenCodeZenApiKey(account.config) ?? ""}`;
