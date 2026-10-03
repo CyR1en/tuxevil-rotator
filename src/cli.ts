@@ -270,6 +270,113 @@ switch (command) {
     process.exit(1);
   }
   break;
+  case "install-agent": {
+    const { installAgents } = await import("./install-agent.js");
+
+    const targetIdx = args.indexOf("--target") >= 0 ? args.indexOf("--target") : args.indexOf("-t");
+    const targetStr = targetIdx >= 0 ? args[targetIdx + 1] : undefined;
+    const targets: ("opencode" | "hermes" | "pi" | "codex" | "auto" | "all")[] = targetStr
+      ? (targetStr.split(",").map((s) => s.trim().toLowerCase()) as ("opencode" | "hermes" | "pi" | "codex" | "auto" | "all")[])
+      : ["auto"];
+
+    const hostIdx = args.indexOf("--host");
+    const host = hostIdx >= 0 ? args[hostIdx + 1] : undefined;
+
+    const userIdx = args.indexOf("--user") >= 0 ? args.indexOf("--user") : args.indexOf("-u");
+    const user = userIdx >= 0 ? args[userIdx + 1] : undefined;
+
+    const portIdx = args.indexOf("--port") >= 0 ? args.indexOf("--port") : args.indexOf("-p");
+    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
+
+    const keyIdx = args.indexOf("--ssh-key") >= 0 ? args.indexOf("--ssh-key") : args.indexOf("-i");
+    const sshKey = keyIdx >= 0 ? args[keyIdx + 1] : undefined;
+
+    const urlIdx = args.indexOf("--rotator-url");
+    const rotatorUrl = urlIdx >= 0 ? args[urlIdx + 1] : undefined;
+
+    const provIdx = args.indexOf("--provider-id");
+    const providerId = provIdx >= 0 ? args[provIdx + 1] : undefined;
+
+    const nameIdx = args.indexOf("--provider-name");
+    const providerName = nameIdx >= 0 ? args[nameIdx + 1] : undefined;
+
+    const apiKeyIdx = args.indexOf("--api-key");
+    const apiKey = apiKeyIdx >= 0 ? args[apiKeyIdx + 1] : undefined;
+
+    const dryRun = args.includes("--dry-run");
+
+    try {
+      await installAgents({
+        targets,
+        host,
+        user,
+        port,
+        sshKey,
+        rotatorUrl,
+        providerId,
+        providerName,
+        apiKey,
+        dryRun,
+      });
+      process.exit(0);
+    } catch (err: unknown) {
+      console.error(`Install failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    break;
+  }
+  case "install-opencode": {
+    const { installOpenCodePlugin } = await import("./install-opencode.js");
+
+    const hostIdx = args.indexOf("--host");
+    const host = hostIdx >= 0 ? args[hostIdx + 1] : undefined;
+
+    const userIdx = args.indexOf("--user");
+    const user = userIdx >= 0 ? args[userIdx + 1] : undefined;
+
+    const portIdx = args.indexOf("--port");
+    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
+
+    const keyIdx = args.indexOf("--ssh-key");
+    const sshKey = keyIdx >= 0 ? args[keyIdx + 1] : undefined;
+
+    const urlIdx = args.indexOf("--rotator-url");
+    const rotatorUrl = urlIdx >= 0 ? args[urlIdx + 1] : undefined;
+
+    const provIdx = args.indexOf("--provider-id");
+    const providerId = provIdx >= 0 ? args[provIdx + 1] : undefined;
+
+    const nameIdx = args.indexOf("--provider-name");
+    const providerName = nameIdx >= 0 ? args[nameIdx + 1] : undefined;
+
+    const apiKeyIdx = args.indexOf("--api-key");
+    const apiKey = apiKeyIdx >= 0 ? args[apiKeyIdx + 1] : undefined;
+
+    const dirIdx = args.indexOf("--target-dir");
+    const targetDir = dirIdx >= 0 ? args[dirIdx + 1] : undefined;
+
+    const dryRun = args.includes("--dry-run");
+
+    try {
+      await installOpenCodePlugin({
+        host,
+        user,
+        port,
+        sshKey,
+        rotatorUrl,
+        providerId,
+        providerName,
+        apiKey,
+        targetDir,
+        dryRun,
+      });
+      process.exit(0);
+    } catch (err: unknown) {
+      console.error(`Install failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    break;
+  }
   default:
     console.log("Tuxevil Rotator");
     console.log();
@@ -298,6 +405,29 @@ switch (command) {
     );
     console.log(
       "                                 delete <hash> - Delete a virtual key",
+    );
+    console.log("  tuxevil-rotator install-agent     Install rotator config across multiple agents");
+    console.log(
+      "                                 [--target <auto|all|opencode,hermes,pi,codex>]",
+    );
+    console.log(
+      "                                 [--host <ip|hostname>] [--user <ssh-user>] [--ssh-key <path>]",
+    );
+    console.log(
+      "                                 [--rotator-url <url>] [--provider-id <id>] [--api-key <key>]",
+    );
+    console.log(
+      "                                 [--dry-run]",
+    );
+    console.log("  tuxevil-rotator install-opencode  Install auto-discovery plugin for OpenCode");
+    console.log(
+      "                                 [--host <ip|hostname>] [--user <ssh-user>] [--ssh-key <path>]",
+    );
+    console.log(
+      "                                 [--rotator-url <url>] [--provider-id <id>] [--api-key <key>]",
+    );
+    console.log(
+      "                                 [--dry-run]",
     );
     console.log();
     console.log("Options:");

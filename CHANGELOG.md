@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-10-03
+
+### Added
+
+- **Automatic agent installation**: `install-agent` configures detected or selected OpenCode, Hermes, Pi, and Codex clients locally or over SSH. `install-opencode` installs the bundled discovery plugin, which reads `/v1/models` and adds model limits and capabilities to OpenCode.
+
+### Improved
+
+- **OpenCode Zen request compatibility**: Requests use a consistent User-Agent and forward the authentic OpenCode session context upstream.
+
+### Changed
+
+- Updated the locked `undici` dependency to `7.29.1`.
+
 ## [3.10.0] - 2026-09-28
 
 ### Added

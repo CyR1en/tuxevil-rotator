@@ -53,6 +53,7 @@ Originally built as a multi-account rotator for Google Antigravity. It now gener
 
 ## Current Model Update
 
+- **v3.11.0: automatic agent setup and OpenCode model discovery**: Configure detected or selected agents locally or over SSH with `install-agent`; OpenCode can populate its model catalog from the rotator's live `/v1/models` endpoint. OpenCode Zen requests also forward the real session context and use a consistent User-Agent. ([Release notes](https://github.com/tuxevil/tuxevil-rotator/releases/tag/v3.11.0))
 - **v3.10.0: Claude tools, account-flag diagnostics, and audio reliability**: Fixed Claude Opus 4.6 Thinking tool-schema errors; account verification reasons now persist and flow into anonymous telemetry with a protected recent-incidents dashboard; audio transcription and WebSocket streaming use active Antigravity accounts with Language Server fallback. ([Release notes](https://github.com/tuxevil/tuxevil-rotator/releases/tag/v3.10.0); audio hardening in [PR #36](https://github.com/tuxevil/tuxevil-rotator/pull/36) by [@javargasm](https://github.com/javargasm))
 - **Rotator-Backed Audio Transcription and Live-Streaming Hardening**: Batch transcription and live WebSocket sessions use active Antigravity accounts with Language Server fallback after rotator errors and timeouts. Virtual-key scopes follow the executed model; live streams preserve segment order, echo Ping payloads, and avoid fallback after client cancellation. ([PR #36](https://github.com/tuxevil/tuxevil-rotator/pull/36) by [@javargasm](https://github.com/javargasm))
 - **OpenAI Codex GPT-6 catalog**: Added GPT-6 Astra, Sol, and Luna to the Codex options while keeping GPT-5.6 Sol, Terra, and Luna available. ([v3.9.0](https://github.com/tuxevil/tuxevil-rotator/releases/tag/v3.9.0))
@@ -219,6 +220,14 @@ Dashboard opens at `http://localhost:51200/dashboard`
 ## Connect Your Agent
 
 Point any OpenAI-compatible agent to `http://localhost:51200/v1` with API key `tuxevil` (or a [Virtual Key](docs/virtual-keys.md)):
+
+You can configure supported local agents automatically with:
+
+```bash
+tuxevil-rotator install-agent --target auto
+```
+
+Use `--target all` or a comma-separated list (`opencode,hermes,pi,codex`) to choose clients. Add `--host <hostname> --user <ssh-user>` to configure them over SSH, or `--dry-run` to review the generated installer first. For OpenCode's live model catalog, use `tuxevil-rotator install-opencode`; see the [OpenCode integration guide](docs/integrations/opencode.md).
 
 | Agent | Guide |
 |-------|-------|

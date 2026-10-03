@@ -2,9 +2,79 @@
 
 Connect OpenCode to tuxevil-rotator to use Google Antigravity models as your OpenCode provider.
 
-## Configuration
+## Automatic Installation CLI (`install-opencode`)
 
-Create or edit `~/.config/opencode/opencode.json` (global) or `opencode.json` in your project root:
+You can install and configure the discovery plugin automatically on your local machine or on remote hosts via SSH using the built-in CLI:
+
+### 1. Install to a Remote Host via SSH
+```bash
+# Basic SSH install to remote host
+tuxevil-rotator install-opencode --host 192.168.1.50 --user ubuntu --rotator-url http://10.128.128.164:51200/v1
+
+# With custom SSH key, virtual API key, and provider name
+tuxevil-rotator install-opencode \
+  --host 192.168.1.50 \
+  --user dev \
+  --ssh-key ~/.ssh/id_rsa \
+  --rotator-url http://10.128.128.164:51200/v1 \
+  --provider-id antigravity \
+  --provider-name "Antigravity Dev" \
+  --api-key rk-your-virtual-key
+```
+
+### 2. Install to Local Agent
+```bash
+tuxevil-rotator install-opencode --rotator-url http://10.128.128.164:51200/v1
+```
+
+### CLI Parameters for `install-opencode`:
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--host <ip\|hostname>` | Target machine hostname or IP (omit for localhost) | `localhost` |
+| `--user <username>` | SSH user for remote installation | Current user |
+| `--port <number>` | SSH port | `22` |
+| `--ssh-key <path>` | Path to private SSH key | Default SSH identities |
+| `--rotator-url <url>` | Rotator endpoint URL (`/v1`) | `http://127.0.0.1:51200/v1` |
+| `--provider-id <id>` | Provider ID inside `opencode.json` | `antigravity` |
+| `--provider-name <name>` | Display name in OpenCode TUI | `Antigravity (rotator)` |
+| `--api-key <key>` | Virtual API key or token | None |
+| `--target-dir <path>` | Target config directory on host | `~/.config/opencode` |
+| `--dry-run` | Prints the remote script without executing | `false` |
+
+---
+
+## Manual Installation and Plugin Details
+
+Instead of manually maintaining the `models` dictionary in `opencode.json`, you can enable the bundled **OpenCode Discovery Plugin**. It dynamically queries the rotator's `/v1/models` endpoint at startup and automatically populates all available models with their real context limits and tool-calling capabilities.
+
+Add the plugin to your `opencode.json`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+      "/path/to/pi-antigravity-rotator/plugins/opencode-discovery.js",
+      {
+        // Optional: specify the rotator URL (defaults to TUXEVIL_ROTATOR_BASE_URL or http://127.0.0.1:51200/v1)
+        "baseURL": "http://10.128.128.164:51200/v1",
+        "providerID": "antigravity"
+      }
+    ]
+  ],
+  "model": "antigravity/gemini-3.8-flash-high"
+}
+```
+
+The plugin automatically detects the URL in this order:
+1. `baseURL` option passed directly in the plugin tuple in `opencode.json`.
+2. `TUXEVIL_ROTATOR_BASE_URL` or `ROTATOR_URL` environment variables.
+3. Existing `provider.*.options.baseURL` in `opencode.json` pointing to a rotator port.
+4. Fallback to `http://127.0.0.1:51200/v1`.
+
+---
+
+## Manual Static Configuration
 
 ```jsonc
 {
