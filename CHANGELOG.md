@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **Rebuilt web dashboard**: the dashboard is now a TypeScript + Preact single-page app (`src/web`), bundled in memory by esbuild at startup, so there is still no separate build step. It replaces about 8,600 lines of string-built HTML, global-function JavaScript and CSS in `src/dashboard.ts` and `src/static/`.
+- **Rebuilt web dashboard**: the dashboard is now a TypeScript + Preact single-page app (`src/web`), bundled in memory by esbuild at startup, so there is still no separate build step. It replaces about 8,600 lines of string-built HTML, global-function JavaScript and CSS in `src/dashboard.ts` and `src/static/`. ([PR #38](https://github.com/tuxevil/tuxevil-rotator/pull/38) by [@CyR1en](https://github.com/CyR1en))
   - **Organized around models.** A new Overview answers whether routing works and for how long: one row per quota pool (Claude, Gemini, Codex, Ollama, OpenCode) with pooled quota weighted by tier, the serving account, the next accounts in line, the next reset and a burn-rate estimate. Each row expands into the routing decisions that used to sit in the Routing Inspector modal.
   - **Inline attention list.** Quarantined, erroring and disabled accounts, open circuit breakers, unroutable models, protective pauses and security warnings appear on the Overview with the fixing action next to each, replacing the header-badge modal.
   - **Account cards, list and drawer.** Accounts show as cards (quota per model with reset countdowns and a Start button for idle windows, requests, health and last use, plus the error and the fix for accounts out of service) or as a compact sortable list; filters, sort and the view are in the URL and the view is remembered. Each account opens a drawer at `/dashboard/accounts/<email>` with quota windows, per-model routing decisions, the health-score breakdown, daily budgets and every action.
@@ -16,7 +16,7 @@
 
 ### Security
 
-- **Dashboard session cookie**: the admin token is no longer kept in `localStorage` or put in URLs by the dashboard. `/dashboard?token=…` links and the new sign-in screen exchange it for an `HttpOnly`, `SameSite=Strict` cookie (an HMAC keyed by the admin token, valid for 30 days) and strip the token from the address bar. Cookie-authenticated writes must be same-origin, and a live session that fails that check gets `403` instead of being signed out. Signing out revokes the session on the server until the next restart. Tokens stored by older dashboards are migrated once and deleted.
+- **Dashboard session cookie**: the admin token is no longer kept in `localStorage` or put in URLs by the dashboard. `/dashboard?token=…` links and the new sign-in screen exchange it for an `HttpOnly`, `SameSite=Strict` cookie (an HMAC keyed by the admin token, valid for 30 days) and strip the token from the address bar. Cookie-authenticated writes must be same-origin, and a live session that fails that check gets `403` instead of being signed out. Signing out persists a hash of the revoked session, so the cookie remains invalid across restarts. Tokens stored by older dashboards are migrated once and deleted.
 - **Content Security Policy**: dashboard pages are served with `script-src 'self'`, `style-src 'self'`, `frame-ancestors 'none'` and no inline handlers or styles.
 
 ### Improved
