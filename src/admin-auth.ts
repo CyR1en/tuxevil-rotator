@@ -1,6 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { getCachedAdminToken, setCachedAdminToken } from "./db-store.js";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  getCachedAdminToken,
+  getCachedDashboardRevokedSessions,
+  isSettingsRepositoryInitialized,
+  setCachedAdminToken,
+  setCachedDashboardRevokedSessions,
+} from "./db-store.js";
 
 interface AdminAuthRequest {
   url?: string;
@@ -197,21 +208,69 @@ export function isSameOriginRequest(req: AdminAuthRequest): boolean {
     .some((host) => host!.split(",")[0].trim() === originHost);
 }
 
-/** Sessions signed out before they expire. In memory, so a restart forgets them. */
+/** Session hashes signed out before they expire. */
 const revokedSessions = new Map<string, number>();
+let persistedRevocationsLoaded = false;
+let persistedRevocationsLoadError: Error | null = null;
+let pendingRevocationWrite: Promise<void> = Promise.resolve();
+
+function sessionHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function loadPersistedRevocations(): void {
+  // Route tests and library consumers may use auth before initDb(); do not
+  // cache an empty result in that case, since production initializes storage
+  // before accepting requests.
+  if (persistedRevocationsLoaded || !isSettingsRepositoryInitialized()) return;
+  try {
+    const persisted = getCachedDashboardRevokedSessions();
+    if (persisted) {
+      for (const [hash, expiresAt] of Object.entries(persisted)) {
+        if (expiresAt > Date.now()) revokedSessions.set(hash, expiresAt);
+      }
+    }
+  } catch (err) {
+    persistedRevocationsLoadError =
+      err instanceof Error ? err : new Error(String(err));
+    console.error(`Failed to load dashboard session revocations: ${err}`);
+  }
+  persistedRevocationsLoaded = true;
+}
+
+function pruneRevokedSessions(now: number): void {
+  for (const [hash, expiresAt] of revokedSessions) {
+    if (expiresAt <= now) revokedSessions.delete(hash);
+  }
+}
+
+function persistRevokedSessions(): Promise<void> {
+  if (!isSettingsRepositoryInitialized()) return Promise.resolve();
+  const snapshot = Object.fromEntries(revokedSessions);
+  const write = pendingRevocationWrite
+    .catch(() => undefined)
+    .then(() => setCachedDashboardRevokedSessions(snapshot));
+  pendingRevocationWrite = write;
+  return write;
+}
 
 /** Sign-out: stop honouring the request's session cookie, not just clear it. */
-export function revokeDashboardSession(
+export async function revokeDashboardSession(
   req: AdminAuthRequest,
   now: number = Date.now(),
-): void {
+): Promise<void> {
+  loadPersistedRevocations();
+  if (persistedRevocationsLoadError) {
+    throw new Error("Dashboard session revocations could not be loaded", {
+      cause: persistedRevocationsLoadError,
+    });
+  }
   const value = readRequestCookie(req, DASHBOARD_SESSION_COOKIE);
   const token = getConfiguredAdminToken();
   if (!value || !token || !verifyDashboardSession(value, token, now)) return;
-  for (const [session, expiresAt] of revokedSessions) {
-    if (expiresAt <= now) revokedSessions.delete(session);
-  }
-  revokedSessions.set(value, Number(value.slice(0, value.indexOf("."))));
+  pruneRevokedSessions(now);
+  revokedSessions.set(sessionHash(value), Number(value.slice(0, value.indexOf("."))));
+  await persistRevokedSessions();
 }
 
 export function hasValidDashboardSession(
@@ -220,7 +279,11 @@ export function hasValidDashboardSession(
 ): boolean {
   if (!expectedToken) return false;
   const value = readRequestCookie(req, DASHBOARD_SESSION_COOKIE);
-  if (value && revokedSessions.has(value)) return false;
+  loadPersistedRevocations();
+  if (persistedRevocationsLoadError && isSettingsRepositoryInitialized()) {
+    return false;
+  }
+  if (value && revokedSessions.has(sessionHash(value))) return false;
   return verifyDashboardSession(value, expectedToken);
 }
 

@@ -59,6 +59,12 @@ const DISK_FILES: Record<string, DiskFileSpec> = {
     trim: true,
     mode: 0o600,
   },
+  dashboard_revoked_sessions: {
+    filename: ".dashboard-revoked-sessions",
+    backup: false,
+    trim: false,
+    mode: 0o600,
+  },
   rotator_state: { filename: "state.json", backup: true, trim: false },
   token_usage: { filename: "token-usage.json", backup: false, trim: false },
   responses_store: { filename: "responses.json", backup: false, trim: false },
@@ -321,6 +327,7 @@ export class FileSettingsRepository implements ISettingsRepository {
       }
     } catch (err) {
       console.error(`Failed to save ${key} to disk (${path}): ${err}`);
+      throw err;
     }
   }
 

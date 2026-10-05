@@ -489,11 +489,20 @@ export async function serveCreateSessionApi(
   sendDashboardJson(req, res, 200, { ok: true, expiresAt: session.expiresAt });
 }
 
-export function serveDeleteSessionApi(
+export async function serveDeleteSessionApi(
   req: IncomingMessage,
   res: ServerResponse,
-): void {
-  revokeDashboardSession(req);
+): Promise<void> {
+  try {
+    await revokeDashboardSession(req);
+  } catch (err) {
+    dashboardLogger.error(`Failed to persist dashboard session revocation: ${err}`);
+    sendDashboardJson(req, res, 503, {
+      ok: false,
+      error: "Could not persist the sign-out. Please try again.",
+    });
+    return;
+  }
   res.setHeader("Set-Cookie", clearDashboardSessionCookie(isSecureRequest(req)));
   sendDashboardJson(req, res, 200, { ok: true });
 }

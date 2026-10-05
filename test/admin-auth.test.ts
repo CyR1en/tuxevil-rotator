@@ -18,11 +18,17 @@ import {
   isSameOriginRequest,
   readPersistedAdminToken,
   readRequestCookie,
+  revokeDashboardSession,
   setPersistedAdminToken,
   verifyDashboardSession,
   writePersistedAdminToken,
 } from "../src/admin-auth.js";
-import { initDb, getCachedAdminToken } from "../src/db-store.js";
+import {
+  initDb,
+  getCachedAdminToken,
+  getCachedDashboardRevokedSessions,
+  setCachedDashboardRevokedSessions,
+} from "../src/db-store.js";
 
 function req(
   url: string,
@@ -277,6 +283,34 @@ describe("dashboard session cookie", () => {
   it("authorizes reads with a valid session cookie", () => {
     assert.equal(isAdminAuthorized(withSession("secret"), "secret"), true);
     assert.equal(isAdminAuthorized(withSession("other"), "secret"), false);
+  });
+
+  it("keeps a signed-out session revoked after auth state is reloaded", async () => {
+    setPersistedAdminToken("secret");
+    const session = createDashboardSession("secret");
+    const request = req("/api/status", {
+      cookie: `${DASHBOARD_SESSION_COOKIE}=${encodeURIComponent(session.value)}`,
+    });
+
+    try {
+      await revokeDashboardSession(request);
+      const persisted = getCachedDashboardRevokedSessions();
+      assert.ok(persisted);
+      assert.ok(Object.keys(persisted).some((hash) => /^[a-f0-9]{64}$/.test(hash)));
+      assert.equal(JSON.stringify(persisted).includes(session.value), false);
+
+      const restartedAuth = await import(
+        `../src/admin-auth.js?restart=${Date.now()}`
+      );
+      assert.equal(
+        restartedAuth.isAdminAuthorized(request, "secret"),
+        false,
+        "a fresh auth module must load the persisted revocation",
+      );
+    } finally {
+      setPersistedAdminToken(null);
+      await setCachedDashboardRevokedSessions({});
+    }
   });
 
   it("requires same-origin writes when only the cookie authenticates", () => {
