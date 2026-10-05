@@ -361,7 +361,7 @@ function getStatus() {
       savings: { totalUsd: totals.input / 1e6 * 2.2 + totals.output / 1e6 * 11, byModel: {} },
     },
     latencyStats: Object.fromEntries(MODELS.slice(0, 6).map((m, i) => [m, { ttfb: { p50: 400 + i * 120, p95: 1800 + i * 900 }, total: { p50: 4200 + i * 600, p95: 14000 + i * 4000 }, count: 40 + i * 13 }])),
-    updateInfo: { currentVersion: "3.10.0", latestVersion: "3.11.0", updateAvailable: SCENARIO === "degraded", checkedAt: t },
+    updateInfo: { currentVersion: "3.11.0", latestVersion: "4.0.0", updateAvailable: SCENARIO === "degraded", checkedAt: t },
     notifications: [],
     hostedOAuthConfigured: false,
   };

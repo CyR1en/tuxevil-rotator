@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-05
+
 ### Changed
 
 - **Rebuilt web dashboard**: the dashboard is now a TypeScript + Preact single-page app (`src/web`), bundled in memory by esbuild at startup, so there is still no separate build step. It replaces about 8,600 lines of string-built HTML, global-function JavaScript and CSS in `src/dashboard.ts` and `src/static/`. ([PR #38](https://github.com/tuxevil/tuxevil-rotator/pull/38) by [@CyR1en](https://github.com/CyR1en))
