@@ -45,6 +45,11 @@ function assertInitialized(): void {
   }
 }
 
+/** Whether settings can be read without throwing. */
+export function isSettingsRepositoryInitialized(): boolean {
+  return initialized;
+}
+
 // ----- Backward-compatible public API -----
 
 /**
@@ -132,6 +137,44 @@ export function getCachedAdminToken(): string | null {
 export async function setCachedAdminToken(token: string): Promise<void> {
   assertInitialized();
   await repository.set("admin_token", token.trim());
+}
+
+// --- Dashboard session revocations ---
+
+export function getCachedDashboardRevokedSessions(): Record<string, number> | null {
+  assertInitialized();
+  const raw = repository.get("dashboard_revoked_sessions");
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error("Failed to parse dashboard session revocations", {
+      cause: err,
+    });
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Invalid dashboard session revocations format");
+  }
+  const sessions: Record<string, number> = {};
+  for (const [hash, expiresAt] of Object.entries(parsed)) {
+    if (
+      !/^[a-f0-9]{64}$/.test(hash) ||
+      typeof expiresAt !== "number" ||
+      !Number.isSafeInteger(expiresAt)
+    ) {
+      throw new Error("Invalid dashboard session revocation entry");
+    }
+    sessions[hash] = expiresAt;
+  }
+  return sessions;
+}
+
+export async function setCachedDashboardRevokedSessions(
+  sessions: Record<string, number>,
+): Promise<void> {
+  assertInitialized();
+  await repository.set("dashboard_revoked_sessions", JSON.stringify(sessions));
 }
 
 // --- Rotator state ---
