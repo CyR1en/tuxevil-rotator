@@ -4,7 +4,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Config } from "./types.js";
 import type { AccountRotator } from "./rotator.js";
-import type { SessionInfo } from "./dashboard-types.js";
+import type { ModelCatalogResponse, SessionInfo } from "./dashboard-types.js";
 import { readLimitedBody } from "./body-limit.js";
 import {
   clearDashboardSessionCookie,
@@ -34,6 +34,8 @@ import {
 } from "./virtual-keys.js";
 import { getSpendLogs, getDailySpendSummary, getSpendByKey } from "./spend-logger.js";
 import { buildOpenAIModelCatalog } from "./compat.js";
+import { getProviderOrder, isProviderTurnedOff, resolveModelRoute } from "./model-catalog.js";
+import { getProviderAdapter } from "./providers/registry.js";
 import { logger } from "./logger.js";
 
 const dashboardLogger = logger.child("dashboard");
@@ -255,6 +257,141 @@ export async function serveAutoWarmupApi(
   const changed = await rotator.setAutoWarmup(enabled);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true, changed, autoWarmupEnabled: enabled }));
+}
+
+// ── Models page: providers, provider order and model switches ─────────
+
+export function buildModelCatalogResponse(rotator: AccountRotator): ModelCatalogResponse {
+  const config = rotator.getConfig();
+  const models = rotator.getModelCatalog();
+  const routedTo = new Map<string, string | null>();
+  for (const model of models) {
+    const id = model.id.toLowerCase();
+    if (routedTo.has(id)) continue;
+    const route = resolveModelRoute(rotator, model.id);
+    routedTo.set(id, route.kind === "provider" ? route.providerId : null);
+  }
+  return {
+    ok: true,
+    providers: getProviderOrder(rotator).map((id) => {
+      const adapter = getProviderAdapter(id);
+      return {
+        id,
+        name: adapter.displayName,
+        credentialKind: adapter.credentialKind,
+        enabled: !isProviderTurnedOff(config, id),
+      };
+    }),
+    models: models.map((model) => ({
+      providerId: model.providerId,
+      id: model.id,
+      contextWindow: model.contextWindow,
+      quotaPool: model.quotaPool,
+      source: model.source,
+      offReason: model.offReason,
+      routed: routedTo.get(model.id.toLowerCase()) === model.providerId,
+    })),
+    autoEnableNewModels: config.autoEnableNewModels ?? true,
+  };
+}
+
+function sendCatalogJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+async function readJsonObject(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await readLimitedBody(req, 256 * 1024);
+    const parsed: unknown = raw.length > 0 ? JSON.parse(raw.toString("utf-8")) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+
+/**
+ * /api/catalog routes. Every change answers with the updated catalog.
+ *
+ *   GET  /api/catalog
+ *   POST /api/catalog/refresh
+ *   POST /api/catalog/providers/:id/on|off
+ *   PUT  /api/catalog/provider-order          { "order": ["ollama", ...] }
+ *   POST /api/catalog/models/on|off           { "models": ["ollama/gpt-oss:20b"] }
+ *   POST /api/catalog/new-models/on|off
+ *   POST /api/catalog/accounts/:email/:provider/on|off
+ */
+export async function serveCatalogApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rotator: AccountRotator,
+  method: string,
+  pathname: string,
+): Promise<void> {
+  const rest = pathname.slice("/api/catalog".length).split("/").filter(Boolean).map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  });
+  const toggle = rest.at(-1) === "on" ? true : rest.at(-1) === "off" ? false : null;
+  const done = () => sendCatalogJson(res, 200, buildModelCatalogResponse(rotator));
+  const fail = (status: number, error: string) => sendCatalogJson(res, status, { ok: false, error });
+
+  try {
+    if (method === "GET" && rest.length === 0) return done();
+
+    if (method === "POST" && rest.length === 1 && rest[0] === "refresh") {
+      await rotator.refreshModelCatalogs();
+      return done();
+    }
+
+    if (method === "POST" && rest[0] === "providers" && rest.length === 3 && toggle !== null) {
+      if (!(await rotator.setProviderEnabled(rest[1], toggle))) return fail(404, `Unknown provider "${rest[1]}"`);
+      return done();
+    }
+
+    if (method === "PUT" && rest.length === 1 && rest[0] === "provider-order") {
+      const body = await readJsonObject(req);
+      if (!body || !isStringList(body.order)) return fail(400, 'Send { "order": ["<provider id>", ...] }');
+      if (!(await rotator.setProviderOrder(body.order))) return fail(400, "The order names an unknown provider");
+      return done();
+    }
+
+    if (method === "POST" && rest[0] === "models" && rest.length === 2 && toggle !== null) {
+      const body = await readJsonObject(req);
+      if (!body || !isStringList(body.models) || body.models.length === 0) {
+        return fail(400, 'Send { "models": ["<provider>/<model>", ...] }');
+      }
+      if (!(await rotator.setModelsEnabled(body.models, toggle))) {
+        return fail(400, 'Each model must be "<provider>/<model>" with a known provider');
+      }
+      return done();
+    }
+
+    if (method === "POST" && rest[0] === "new-models" && rest.length === 2 && toggle !== null) {
+      await rotator.setAutoEnableNewModels(toggle);
+      return done();
+    }
+
+    if (method === "POST" && rest[0] === "accounts" && rest.length === 4 && toggle !== null) {
+      if (!(await rotator.setAccountProviderEnabled(rest[1], rest[2], toggle))) {
+        return fail(404, `No ${rest[2]} credential on ${rest[1]}`);
+      }
+      return done();
+    }
+
+    return fail(404, "Not found");
+  } catch (err) {
+    dashboardLogger.error(`Catalog request failed: ${err}`);
+    return fail(500, "Internal server error");
+  }
 }
 
 // ── Virtual Keys & Spend Logging REST API ────────────────────────────

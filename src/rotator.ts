@@ -60,10 +60,22 @@ import {
   primaryProviderId,
   findProviderForModel,
   getProviderIdForPoolKey,
+  isKnownProvider,
   isOllamaQuotaPoolKey,
   PROVIDER_ORDER,
 } from "./providers/registry.js";
 import type { QuotaFetchContext } from "./providers/adapter.js";
+import {
+  isProviderTurnedOff,
+  listCatalogModels,
+  parseModelKey,
+  resolveProviderOrder,
+  routedProviderId,
+  setAutoEnableNewModels as autoEnablePatch,
+  setModelsTurnedOff,
+  setProviderTurnedOff,
+  type CatalogModel,
+} from "./model-catalog.js";
 import { logger } from "./logger.js";
 import { getAccountProxyDispatcher } from "./providers/proxy-dispatcher.js";
 import {
@@ -280,11 +292,21 @@ export class AccountRotator {
   }
 
   hasActiveProvider(providerId: string): boolean {
+    if (isProviderTurnedOff(this.config, providerId)) return false;
     return this.accounts.some(
       (account) =>
         !account.disabled &&
         !account.flagged &&
-        hasCredential(account.config, providerId),
+        hasCredential(account.config, providerId) &&
+        !account.disabledProviders?.includes(providerId),
+    );
+  }
+
+  /** Turned off on the Models page, for every account or for this one. */
+  private isProviderOffForAccount(account: AccountRuntime, providerId: string): boolean {
+    return (
+      isProviderTurnedOff(this.config, providerId) ||
+      (account.disabledProviders?.includes(providerId) ?? false)
     );
   }
 
@@ -644,6 +666,9 @@ export class AccountRotator {
           if (account.flagged && saved.flagReason) account.lastError = saved.flagReason;
           account.allowFreshWindowStartsOverride =
             saved.allowFreshWindowStartsOverride ?? false;
+          if (saved.disabledProviders?.length) {
+            account.disabledProviders = [...saved.disabledProviders];
+          }
         }
       }
       this.migratePersistedQuotaStateKeys();
@@ -808,6 +833,9 @@ export class AccountRotator {
         flagged: account.flagged,
         flagReason: account.flagged ? account.lastError : null,
         allowFreshWindowStartsOverride: account.allowFreshWindowStartsOverride,
+        ...(account.disabledProviders?.length
+          ? { disabledProviders: [...account.disabledProviders] }
+          : {}),
       };
     }
     try {
@@ -3412,6 +3440,80 @@ export class AccountRotator {
     return true;
   }
 
+  // ── Models page ─────────────────────────────────────────────────────────
+
+  /** Every provider's models, in provider order, with whether each is served. */
+  getModelCatalog(): CatalogModel[] {
+    return listCatalogModels(this);
+  }
+
+  async setProviderEnabled(providerId: string, enabled: boolean): Promise<boolean> {
+    if (!isKnownProvider(providerId)) return false;
+    await this.updateModelSettings(setProviderTurnedOff(this.config, providerId, !enabled));
+    this.log(
+      `Operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"}`,
+      "warn",
+    );
+    return true;
+  }
+
+  async setProviderOrder(order: string[]): Promise<boolean> {
+    if (!order.every(isKnownProvider)) return false;
+    const next = resolveProviderOrder(order);
+    await this.updateModelSettings({ providerOrder: next });
+    this.log(`Operator set the provider order: ${next.join(", ")}`);
+    return true;
+  }
+
+  /** Keys are "<provider>/<model>". */
+  async setModelsEnabled(keys: string[], enabled: boolean): Promise<boolean> {
+    if (keys.length === 0 || !keys.every((key) => parseModelKey(key))) return false;
+    await this.updateModelSettings(setModelsTurnedOff(this.config, keys, !enabled));
+    this.log(`Operator turned ${enabled ? "on" : "off"} ${keys.join(", ")}`, "warn");
+    return true;
+  }
+
+  async setAutoEnableNewModels(enabled: boolean): Promise<void> {
+    await this.updateModelSettings(autoEnablePatch(this, enabled));
+    this.log(
+      enabled
+        ? "Operator set new models to turn on automatically"
+        : "Operator set new models to stay off until reviewed",
+    );
+  }
+
+  /** Turn one provider off for one account; its other providers keep serving. */
+  async setAccountProviderEnabled(
+    email: string,
+    providerId: string,
+    enabled: boolean,
+  ): Promise<boolean> {
+    const account = this.accounts.find((a) => a.config.email === email);
+    if (!account || !hasCredential(account.config, providerId)) return false;
+    const rest = (account.disabledProviders ?? []).filter((id) => id !== providerId);
+    const next = enabled ? rest : [...rest, providerId];
+    account.disabledProviders = next.length > 0 ? next : undefined;
+    await this.saveState();
+    this.log(
+      `${email}: operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"} for this account`,
+      "warn",
+    );
+    this.requestWaiterDrain();
+    return true;
+  }
+
+  /** Re-read the Ollama and Codex model lists now instead of on the next poll. */
+  async refreshModelCatalogs(): Promise<void> {
+    this.lastOllamaCatalogFetch = 0;
+    await Promise.all([this.refreshOllamaCatalogOnce(), this.primeCodexCatalog()]);
+  }
+
+  private async updateModelSettings(patch: Partial<Config>): Promise<void> {
+    this.config = { ...this.config, ...patch };
+    await saveAccountsConfig(this.config);
+    this.requestWaiterDrain();
+  }
+
   async setAutoWarmup(enabled: boolean): Promise<boolean> {
     if (this.autoWarmupEnabled === enabled) return false;
     this.autoWarmupEnabled = enabled;
@@ -3680,6 +3782,7 @@ export class AccountRotator {
     if (!this.isAvailable(account, now)) return false;
     const providerId = getProviderIdForPoolKey(modelKey);
     if (account.invalidProviders?.[providerId]) return false;
+    if (this.isProviderOffForAccount(account, providerId)) return false;
     if ((account.providerCooldowns?.[providerId] ?? 0) > now) return false;
     const modelCooldown =
       account.cooldownsByModel[this.resolveQuotaStateKey(modelKey)] ?? 0;
@@ -3793,6 +3896,18 @@ export class AccountRotator {
         detail: `${providerId} credential is invalid; re-authentication required`,
       };
     }
+    if (isProviderTurnedOff(this.config, providerId)) {
+      return {
+        reason: "provider-ineligible",
+        detail: `${getProviderAdapter(providerId).displayName} is turned off on the Models page`,
+      };
+    }
+    if (account.disabledProviders?.includes(providerId)) {
+      return {
+        reason: "provider-ineligible",
+        detail: `${getProviderAdapter(providerId).displayName} is turned off for this account`,
+      };
+    }
     if (
       providerId === "openai-codex" &&
       !getProviderAdapter(providerId).hasValidCredentials(account)
@@ -3839,7 +3954,10 @@ export class AccountRotator {
       codexModels: this.codexModels,
       providerId,
     };
-    const adapter = findProviderForModel(model, context);
+    const routed = providerId ? null : routedProviderId(this, model);
+    const adapter = routed
+      ? getProviderAdapter(routed)
+      : findProviderForModel(model, context);
     if (adapter?.getPoolKey) {
       return adapter.getPoolKey(model);
     }
@@ -3936,7 +4054,8 @@ export class AccountRotator {
       const candidateProviderId = providerId ?? getProviderIdForPoolKey(modelKey);
       if (
         !hasCredential(account.config, candidateProviderId) ||
-        account.invalidProviders?.[candidateProviderId]
+        account.invalidProviders?.[candidateProviderId] ||
+        this.isProviderOffForAccount(account, candidateProviderId)
       ) {
         continue;
       }
@@ -4033,6 +4152,9 @@ export class AccountRotator {
         hasValidToken: !!(a.accessToken && a.tokenExpires > now),
         invalidProviders: a.invalidProviders,
         providerCooldowns: a.providerCooldowns,
+        ...(a.disabledProviders?.length
+          ? { disabledProviders: [...a.disabledProviders] }
+          : {}),
         quota: a.quota,
         inFlightRequests: a.inFlightRequests,
         inFlightByModel: a.inFlightByModel,
@@ -4704,6 +4826,14 @@ export class AccountRotator {
         status: 409,
         upstreamModel: "",
         error: "quota pool has no configured kickstart provider",
+      };
+    }
+    if (this.isProviderOffForAccount(account, target.providerId)) {
+      return {
+        ok: false,
+        status: 409,
+        upstreamModel: "",
+        error: "provider turned off on the Models page",
       };
     }
 

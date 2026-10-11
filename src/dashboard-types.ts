@@ -190,3 +190,36 @@ export interface SessionInfo {
   authenticated: boolean;
   authRequired: boolean;
 }
+
+// ── Models page (/api/catalog) ──────────────────────────────────────────
+
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  credentialKind: "oauth" | "api-key";
+  /** False when the operator turned the provider off. */
+  enabled: boolean;
+}
+
+export interface CatalogModelEntry {
+  providerId: string;
+  id: string;
+  contextWindow: number | null;
+  /** Quota row the model draws from (`account.quota[].modelKey`). */
+  quotaPool: string;
+  source: "catalog" | "discovered";
+  /** Why the model is off: its provider, its own switch, or waiting for review. */
+  offReason: "provider" | "model" | "review" | null;
+  /** Requests for this id go to this provider. */
+  routed: boolean;
+}
+
+export interface ModelCatalogResponse {
+  ok: true;
+  /** Every provider, in routing order. */
+  providers: CatalogProvider[];
+  /** Every provider's models, in provider order. */
+  models: CatalogModelEntry[];
+  /** False when models a provider adds later stay off until turned on. */
+  autoEnableNewModels: boolean;
+}

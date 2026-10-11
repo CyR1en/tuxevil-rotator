@@ -72,6 +72,11 @@ export function applyConfigDefaults(config: Config): Config {
 					maxExcerptChars: config.typesafeRouting.maxExcerptChars ?? 12_000,
 				}
 				: undefined,
+		providerOrder: config.providerOrder,
+		disabledProviders: config.disabledProviders,
+		disabledModels: config.disabledModels,
+		autoEnableNewModels: config.autoEnableNewModels,
+		reviewedModels: config.reviewedModels,
 		accounts: config.accounts ? config.accounts.map((account) => ({
 			...normalizeAccountConfig(account),
 			tier: account.tier || "unknown",

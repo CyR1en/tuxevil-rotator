@@ -37,14 +37,16 @@ import {
   sanitizeGeminiSchema,
   sanitizeClaudeViaGeminiSchema,
 } from "./compat/schema-sanitizer.js";
-import { dynamicCatalog } from "./providers/google-antigravity/dynamic-catalog.js";
+import {
+  getEffectiveAntigravityModels,
+  type CompatModelEntry,
+} from "./providers/google-antigravity/catalog.js";
 import {
   DEFAULT_MODEL_SPECS,
   setModelSpecsOverride,
   getActiveModelSpecs,
   getModelFamily,
   getModelSpec,
-  getModelSpecOverride,
   isThinkingModel,
 } from "./compat/model-specs.js";
 import type { ModelSpec } from "./compat/model-specs.js";
@@ -109,6 +111,13 @@ import {
   type AutoRoutingCatalogEntry,
   type AutoRoutingRoute,
 } from "./auto-routing.js";
+import {
+  isModelServed,
+  isProviderTurnedOff,
+  modelOffMessage,
+  resolveModelRoute,
+  type ModelCatalogSource,
+} from "./model-catalog.js";
 
 function isCodexModelForRotator(rotator: AccountRotator, model: string): boolean {
   if (isCodexRequestModel(model)) return true;
@@ -122,6 +131,36 @@ function isCodexModelForRotator(rotator: AccountRotator, model: string): boolean
 
 function isAutoModel(model: string): boolean {
   return model.trim().toLowerCase() === "auto";
+}
+
+type CompatRoute =
+  | { off: true }
+  | { off: false; providerId: string; pinned: boolean };
+
+/**
+ * Provider for a request that names a model. Ids a provider lists follow the
+ * Models page (provider order, switches) and are pinned to that provider; other
+ * ids keep the long-standing checks: Codex, Zen, Ollama, then Antigravity.
+ */
+function compatRoute(rotator: AccountRotator, model: string): CompatRoute {
+  const route = resolveModelRoute(rotator, model);
+  if (route.kind === "off") return { off: true };
+  if (route.kind === "provider") return { off: false, providerId: route.providerId, pinned: true };
+  if (isCodexModelForRotator(rotator, model)) return { off: false, providerId: "openai-codex", pinned: false };
+  if (isOpenCodeZenModel(model)) return { off: false, providerId: OPENCODE_ZEN_PROVIDER_ID, pinned: false };
+  if (rotator?.getOllamaModels?.().includes(model)) return { off: false, providerId: "ollama", pinned: false };
+  return { off: false, providerId: "google-antigravity", pinned: false };
+}
+
+function openAIModelOff(res: ServerResponse, model: string): void {
+  writeJson(res, 404, {
+    error: {
+      message: modelOffMessage(model),
+      type: "invalid_request_error",
+      param: "model",
+      code: "model_not_found",
+    },
+  });
 }
 
 function authorizeResolvedAutoModel(
@@ -141,6 +180,15 @@ function authorizeResolvedAutoModel(
 }
 
 function buildAutoRoutingCatalog(
+  rotator: AccountRotator,
+  route: AutoRoutingRoute,
+): AutoRoutingCatalogEntry[] {
+  return buildAllAutoRoutingCandidates(rotator, route).filter((entry) =>
+    isModelServed(rotator, entry.providerId, entry.modelId),
+  );
+}
+
+function buildAllAutoRoutingCandidates(
   rotator: AccountRotator,
   route: AutoRoutingRoute,
 ): AutoRoutingCatalogEntry[] {
@@ -2453,136 +2501,8 @@ async function completeViaRotator(
   };
 }
 
-const MODEL_CATALOG = [
-  {
-    id: "gemini-3-flash",
-    family: "gemini-3-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-high",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-medium",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-low",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-tiered",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.7-flash-tiered",
-    family: "gemini-3.7-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-high",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-medium",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-low",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.1-pro-low",
-    family: "gemini-3.1-pro",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.1-pro-high",
-    family: "gemini-3.1-pro",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "claude-sonnet-4-6",
-    family: "claude",
-    ctx: 1000000,
-    quotaPool: "claude",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "claude-opus-4-6-thinking",
-    family: "claude",
-    ctx: 1000000,
-    quotaPool: "claude",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gpt-oss-120b-medium",
-    family: "gpt-oss",
-    ctx: 131072,
-    quotaPool: "claude",
-    multimodal: false,
-    tools: true,
-  },
-  {
-    id: "gemini-3.5-flash-lite",
-    family: "gemini-3.5-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "whisper-1",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: false,
-  },
-] as const;
+export { getEffectiveAntigravityModels };
+export type { CompatModelEntry };
 
 export interface OpenAIModelCatalogEntry {
   id: string;
@@ -2594,58 +2514,11 @@ export interface OpenAIModelCatalogEntry {
   meta: Record<string, unknown>;
 }
 
-export interface CompatModelEntry {
-  id: string;
-  family: string;
-  ctx: number;
-  quotaPool: string;
-  multimodal: boolean;
-  tools: boolean;
-  maxOutputTokens: number;
-  thinkingBudget: number;
-  minThinkingBudget?: number;
-  isThinking: boolean;
-}
-
-export function getEffectiveAntigravityModels(): CompatModelEntry[] {
-  const dynamic = dynamicCatalog.getAllModels();
-  const seen = new Set(MODEL_CATALOG.map((model) => model.id.toLowerCase()));
-  const result: CompatModelEntry[] = MODEL_CATALOG.map((model) => {
-    const spec = getModelSpec(model.id);
-    const contextWindow = getModelSpecOverride(model.id)?.contextWindow ??
-      dynamicCatalog.getModelSpec(model.id)?.contextWindow;
-    return {
-      ...model,
-      ctx: contextWindow ?? model.ctx,
-      maxOutputTokens: spec.maxOutputTokens,
-      thinkingBudget: spec.thinkingBudget,
-      minThinkingBudget: spec.minThinkingBudget,
-      isThinking: spec.isThinking,
-    };
-  });
-  for (const m of dynamic) {
-    if (seen.has(m.id.toLowerCase())) continue;
-    seen.add(m.id.toLowerCase());
-    const spec = getModelSpec(m.id);
-    result.push({
-      id: m.id,
-      family: m.family,
-      ctx: spec.contextWindow ?? m.ctx,
-      quotaPool: m.quotaPool,
-      multimodal: m.multimodal,
-      tools: m.tools,
-      maxOutputTokens: spec.maxOutputTokens,
-      thinkingBudget: spec.thinkingBudget,
-      minThinkingBudget: spec.minThinkingBudget,
-      isThinking: spec.isThinking,
-    });
-  }
-
-  return result;
-}
-
-function getOpenAIAntigravityModels(): CompatModelEntry[] {
-  const result = getEffectiveAntigravityModels();
+function getOpenAIAntigravityModels(
+  served: (id: string) => boolean = () => true,
+): CompatModelEntry[] {
+  // Effort aliases stand in for their targets, so filter before swapping them.
+  const result = getEffectiveAntigravityModels().filter((model) => served(model.id));
   const rules = getEffortRouting();
   if (!rules || Object.keys(rules).length === 0) {
     return result;
@@ -2707,12 +2580,20 @@ function getOpenAIAntigravityModels(): CompatModelEntry[] {
  * Build the OpenAI-compatible `/v1/models` catalog for the proxy.
  *
  * The static Antigravity baseline and dynamically-discovered Antigravity models
- * are always included. An active rotator also contributes its other providers.
+ * are included unless Antigravity is turned off. An active rotator also
+ * contributes its other providers. Models turned off on the dashboard's Models
+ * page are left out, and an id more than one provider lists appears once, owned
+ * by the provider its requests go to.
  */
 export function buildOpenAIModelCatalog(
   rotator?: AccountRotator,
 ): OpenAIModelCatalogEntry[] {
-  const catalog: OpenAIModelCatalogEntry[] = getOpenAIAntigravityModels().map(
+  const source: ModelCatalogSource = rotator ?? {};
+  const served = (providerId: string) => (id: string) => isModelServed(source, providerId, id);
+  const antigravityModels = isProviderTurnedOff(rotator?.getConfig?.(), "google-antigravity")
+    ? []
+    : getOpenAIAntigravityModels(served("google-antigravity"));
+  const catalog: OpenAIModelCatalogEntry[] = antigravityModels.map(
     ({
       id,
       ctx,
@@ -2749,10 +2630,11 @@ export function buildOpenAIModelCatalog(
   const hasActiveProvider = (providerId: string): boolean =>
     rotator?.hasActiveProvider(providerId) ?? false;
   const ollamaModels = hasActiveProvider("ollama")
-    ? rotator?.getOllamaModels?.() ?? []
+    ? (rotator?.getOllamaModels?.() ?? []).filter(served("ollama"))
     : [];
   if (hasActiveProvider("openai-codex")) {
     for (const model of getCodexModels()) {
+      if (!served("openai-codex")(model.id)) continue;
       catalog.push({
         id: model.id,
         object: "model",
@@ -2790,6 +2672,7 @@ export function buildOpenAIModelCatalog(
   }
   if (hasActiveProvider(OPENCODE_ZEN_PROVIDER_ID)) {
     for (const spec of OPENCODE_ZEN_CATALOG) {
+      if (!served(OPENCODE_ZEN_PROVIDER_ID)(spec.id)) continue;
       catalog.push({
         id: spec.id,
         object: "model",
@@ -2807,7 +2690,32 @@ export function buildOpenAIModelCatalog(
       });
     }
   }
-  return catalog;
+  return dedupeByRoute(catalog, source);
+}
+
+/** Keep one entry per id: the one owned by the provider its requests go to. */
+function dedupeByRoute(
+  catalog: OpenAIModelCatalogEntry[],
+  source: ModelCatalogSource,
+): OpenAIModelCatalogEntry[] {
+  const counts = new Map<string, number>();
+  for (const entry of catalog) {
+    const id = entry.id.toLowerCase();
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  if ([...counts.values()].every((count) => count === 1)) return catalog;
+  const ownerOf = (providerId: string) =>
+    providerId === "google-antigravity" ? "tuxevil-rotator" : providerId;
+  const kept = new Set<string>();
+  return catalog.filter((entry) => {
+    const id = entry.id.toLowerCase();
+    if (counts.get(id) === 1) return true;
+    if (kept.has(id)) return false;
+    const route = resolveModelRoute(source, entry.id);
+    if (route.kind === "provider" && ownerOf(route.providerId) !== entry.owned_by) return false;
+    kept.add(id);
+    return true;
+  });
 }
 
 export function serveOpenAIModels(
@@ -2817,9 +2725,15 @@ export function serveOpenAIModels(
   writeJson(res, 200, { object: "list", data: buildOpenAIModelCatalog(rotator) });
 }
 
-export function serveGeminiModels(res: ServerResponse): void {
+export function serveGeminiModels(res: ServerResponse, rotator?: AccountRotator): void {
+  const source: ModelCatalogSource = rotator ?? {};
+  const models = isProviderTurnedOff(rotator?.getConfig?.(), "google-antigravity")
+    ? []
+    : getEffectiveAntigravityModels().filter((model) =>
+        isModelServed(source, "google-antigravity", model.id),
+      );
   writeJson(res, 200, {
-    models: getEffectiveAntigravityModels().map(
+    models: models.map(
       ({
         id,
         ctx,
@@ -2910,6 +2824,11 @@ export async function handleGeminiGenerateContent(
   }
   if (autoSelection && !authorizeResolvedAutoModel(res, auth, autoSelection.model)) return;
   const selectedModel = autoSelection?.model ?? model;
+  if (!autoSelection && resolveModelRoute(rotator, selectedModel).kind === "off") {
+    return writeJson(res, 404, {
+      error: { code: 404, message: modelOffMessage(model), status: "NOT_FOUND" },
+    });
+  }
 
   const body: RequestBody = {
     model: selectedModel,
@@ -3043,8 +2962,12 @@ export async function handleOpenAIChatCompletions(
   const routedRequest = autoSelection
     ? { ...validation.value, model: autoSelection.model }
     : validation.value;
+  const route: CompatRoute = autoSelection
+    ? { off: false, providerId: autoSelection.providerId, pinned: true }
+    : compatRoute(rotator, routedRequest.model);
+  if (route.off) return openAIModelOff(res, requestedModel);
 
-  if (isCodexModelForRotator(rotator, routedRequest.model)) {
+  if (route.providerId === "openai-codex") {
     await serveCodexChat(req, res, rotator, routedRequest, {
       callType: "chat_completion",
       apiKeyHash,
@@ -3074,11 +2997,12 @@ export async function handleOpenAIChatCompletions(
 
   const started = Date.now();
   const streamMode = routedRequest.stream ? "openai" : "none";
-  const bodyToForward: RequestBody = isOpenCodeZenModel(chatReq.model) || autoSelection?.providerId === OPENCODE_ZEN_PROVIDER_ID
+  const bodyToForward: RequestBody = route.providerId === OPENCODE_ZEN_PROVIDER_ID
     ? { project: "", model: chatReq.model, request: chatReq, requestType: "openai-chat" }
-    : (autoSelection?.providerId === "ollama" || rotator?.getOllamaModels?.().includes(chatReq.model)
+    : (route.providerId === "ollama"
       ? openAIToOllamaBody(chatReq)
       : openAIToAntigravityBody(chatReq));
+  if (route.pinned) bodyToForward.providerId = route.providerId;
   if (autoSelection) {
     bodyToForward.displayModel = requestedModel;
     bodyToForward.providerId = autoSelection.providerId;
@@ -3233,8 +3157,12 @@ export async function handleOpenAIResponsesCreate(
   const routedValidation = autoSelection
     ? { ...validation.value, model: autoSelection.model }
     : validation.value;
+  const route: CompatRoute = autoSelection
+    ? { off: false, providerId: autoSelection.providerId, pinned: true }
+    : compatRoute(rotator, routedValidation.model);
+  if (route.off) return openAIModelOff(res, requestedModel);
 
-  if (isCodexModelForRotator(rotator, routedValidation.model)) {
+  if (route.providerId === "openai-codex") {
     await serveCodexResponses(req, res, rotator, routedValidation, {
       callType: "responses",
       apiKeyHash,
@@ -3276,11 +3204,12 @@ export async function handleOpenAIResponsesCreate(
     ? { ...converted.chatRequest, messages: compRes.messages }
     : converted.chatRequest;
 
-  const requestBody: RequestBody = isOpenCodeZenModel(chatRequest.model) || autoSelection?.providerId === OPENCODE_ZEN_PROVIDER_ID
+  const requestBody: RequestBody = route.providerId === OPENCODE_ZEN_PROVIDER_ID
     ? { project: "", model: chatRequest.model, request: chatRequest, requestType: "openai-responses" }
-    : (autoSelection?.providerId === "ollama" || rotator?.getOllamaModels?.().includes(chatRequest.model)
+    : (route.providerId === "ollama"
       ? openAIToOllamaBody(chatRequest)
       : openAIToAntigravityBody(chatRequest));
+  if (route.pinned) requestBody.providerId = route.providerId;
   if (autoSelection) {
     requestBody.displayModel = requestedModel;
     requestBody.providerId = autoSelection.providerId;
@@ -3541,6 +3470,24 @@ export async function handleAnthropicMessages(
   const routedValidation = autoSelection
     ? { ...validation.value, model: autoSelection.model }
     : validation.value;
+  const route: CompatRoute = autoSelection
+    ? { off: false, providerId: autoSelection.providerId, pinned: true }
+    : compatRoute(rotator, routedValidation.model);
+  if (route.off) {
+    return writeJson(res, 404, {
+      type: "error",
+      error: { type: "not_found_error", message: modelOffMessage(requestedModel) },
+    });
+  }
+  if (route.providerId === "openai-codex") {
+    return writeJson(res, 400, {
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        message: `The model '${requestedModel}' is served by OpenAI Codex, which this rotator offers only through /v1/chat/completions and /v1/responses.`,
+      },
+    });
+  }
 
   const compMode = parseCompressionMode(
     req.headers["x-rotator-compression"],
@@ -3560,11 +3507,12 @@ export async function handleAnthropicMessages(
 
   const started = Date.now();
   const streamMode = routedValidation.stream ? "anthropic" : "none";
-  const bodyToForward: RequestBody = isOpenCodeZenModel(anthropicReq.model) || autoSelection?.providerId === OPENCODE_ZEN_PROVIDER_ID
+  const bodyToForward: RequestBody = route.providerId === OPENCODE_ZEN_PROVIDER_ID
     ? { project: "", model: anthropicReq.model, request: anthropicToOpenAIChatRequest(anthropicReq), requestType: "anthropic" }
-    : (autoSelection?.providerId === "ollama" || rotator?.getOllamaModels?.().includes(anthropicReq.model)
+    : (route.providerId === "ollama"
       ? anthropicToOllamaBody(anthropicReq)
       : anthropicToAntigravityBody(anthropicReq));
+  if (route.pinned) bodyToForward.providerId = route.providerId;
   if (autoSelection) {
     bodyToForward.displayModel = requestedModel;
     bodyToForward.providerId = autoSelection.providerId;

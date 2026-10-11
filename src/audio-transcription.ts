@@ -14,6 +14,7 @@ import type { AccountRotator } from "./rotator.js";
 import { withRotation, type RequestBody } from "./proxy.js";
 import { extractRetryAfterSeconds } from "./compat.js";
 import { getModelSpec } from "./compat/model-specs.js";
+import { modelOffMessage, resolveModelRoute } from "./model-catalog.js";
 
 const audioLogger = logger.child("audio-transcription");
 const AUDIO_SESSION_START_TIMEOUT_MS = 10_000;
@@ -933,6 +934,21 @@ export async function handleOpenAIAudioTranscriptions(
   if (!modelAuth.authenticated) {
     logRequest("failure");
     sendAuthErrorResponse(res, modelAuth);
+    return;
+  }
+  if (rotator && resolveModelRoute(rotator, requestedModel ?? "whisper-1").kind === "off") {
+    logRequest("failure");
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: modelOffMessage(requestedModel ?? "whisper-1"),
+          type: "invalid_request_error",
+          param: "model",
+          code: "model_not_found",
+        },
+      }),
+    );
     return;
   }
   // Every executed request is accounted to the model that actually ran upstream.

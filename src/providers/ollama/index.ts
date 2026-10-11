@@ -7,7 +7,7 @@
 // Ported from the ollama-rotator project (same author) into the
 // tuxevil-rotator provider layer.
 
-import type { ProviderAdapter, ProviderFeatures } from "../adapter.js";
+import type { ModelListContext, ProviderAdapter, ProviderFeatures, ProviderModel } from "../adapter.js";
 import { fetchProviderUsage } from "./quota.js";
 import {
   forwardRequest,
@@ -79,6 +79,16 @@ export const ollamaAdapter: ProviderAdapter = {
     // The current monthly pool has no idle timer to start. Keep the legacy
     // session path for operators upgrading from the old API shape.
     return quotaModelKey === "session" ? OLLAMA_KICKSTART_MODEL : undefined;
+  },
+
+  listModels(context: ModelListContext): ProviderModel[] {
+    // The live catalog carries names only; /v1/models has always advertised 128K.
+    return context.ollamaModels.map((id) => ({
+      id,
+      contextWindow: 128_000,
+      quotaPool: OLLAMA_QUOTA_POOL_KEY,
+      source: "discovered",
+    }));
   },
 
   ownsModel(model: string, context?: { ollamaModels?: Set<string> }): boolean {

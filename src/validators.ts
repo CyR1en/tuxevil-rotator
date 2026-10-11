@@ -6,6 +6,7 @@ import {
 	type Config,
 } from "./types.js";
 import { getProxyConfigurationError } from "./providers/proxy-dispatcher.js";
+import { PROVIDER_ORDER } from "./providers/credential-helpers.js";
 import { isCodexRequestModel } from "./providers/openai-codex/catalog.js";
 import { isOpenCodeZenModel } from "./providers/opencode-zen/catalog.js";
 
@@ -41,6 +42,15 @@ function isNonNegativeNumber(value: unknown): value is number {
 
 function isNonNegativeInteger(value: unknown): value is number {
 	return isNonNegativeNumber(value) && Number.isInteger(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function isProviderModelKey(value: string): boolean {
+	const slash = value.indexOf("/");
+	return slash > 0 && slash < value.length - 1 && PROVIDER_ORDER.includes(value.slice(0, slash));
 }
 
 function isKnownNonGoogleModel(model: string): boolean {
@@ -344,6 +354,29 @@ export function validateConfig(value: unknown): ValidationResult<Config> {
 				errors.push("config.typesafeRouting.maxExcerptChars must be an integer between 256 and 50000");
 			}
 		}
+	}
+
+	for (const field of ["providerOrder", "disabledProviders"] as const) {
+		const list = value[field];
+		if (list === undefined) continue;
+		if (!isStringArray(list)) {
+			errors.push(`config.${field} must be an array of provider ids`);
+			continue;
+		}
+		const unknown = list.filter((id) => !PROVIDER_ORDER.includes(id));
+		if (unknown.length > 0) {
+			errors.push(`config.${field} has unknown providers: ${unknown.join(", ")}. Known: ${PROVIDER_ORDER.join(", ")}`);
+		}
+	}
+	for (const field of ["disabledModels", "reviewedModels"] as const) {
+		const list = value[field];
+		if (list === undefined) continue;
+		if (!isStringArray(list) || !list.every(isProviderModelKey)) {
+			errors.push(`config.${field} must be an array of "<provider>/<model>" entries, e.g. "ollama/gpt-oss:20b"`);
+		}
+	}
+	if (value.autoEnableNewModels !== undefined && typeof value.autoEnableNewModels !== "boolean") {
+		errors.push("config.autoEnableNewModels must be a boolean");
 	}
 
 	return errors.length > 0 ? fail(errors) : ok(value as unknown as Config);

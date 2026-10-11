@@ -20,6 +20,12 @@ import {
 import type { AccountRuntime } from "./types.js";
 import type { AccountRotator } from "./rotator.js";
 import { DEFAULT_PROVIDER, getProviderAdapter, getProviderForAccount, findProviderForModel, isKnownProvider } from "./providers/registry.js";
+import {
+  modelOffMessage,
+  resolveModelRoute,
+  routedProviderId,
+  type ModelCatalogSource,
+} from "./model-catalog.js";
 import { isRecord } from "./compat/schema-sanitizer.js";
 import type { ProviderAdapter, StreamAccumulator } from "./providers/adapter.js";
 import {
@@ -60,6 +66,7 @@ import {
   serveGetSpendSummaryApi,
   serveGetSpendByKeyApi,
   serveModelsApi,
+  serveCatalogApi,
   serveSessionInfoApi,
   serveCreateSessionApi,
   serveDeleteSessionApi,
@@ -106,13 +113,15 @@ import type { FlagEventData } from "./telemetry.js";
  * models like `minimax-m3`, `kimi-k3`, `glm-5.1` have no tag, and some
  * Google model aliases do).
  *
- * The rotator is required only when it exposes `getOllamaModels()`; test
- * stubs that omit it fall back to the credentials-only dispatch.
+ * Ids a provider lists follow the Models page provider order (see
+ * model-catalog.ts). The rotator is required only when it exposes
+ * `getOllamaModels()`; test stubs that omit it fall back to the
+ * credentials-only dispatch.
  */
 export function providerAdapterForModel(
   account: AccountRuntime,
   model: string | undefined,
-  rotator?: { getOllamaModels?: () => string[]; getCodexModels?: () => string[] },
+  rotator?: ModelCatalogSource,
   providerHint?: string,
 ): ProviderAdapter {
   const creds = account.config.credentials ?? [];
@@ -130,6 +139,8 @@ export function providerAdapterForModel(
         `Effort routing ${effortRoutingKind} "${model}" matches a live Ollama model; live provider dispatch wins`,
       );
     }
+    const routed = rotator ? routedProviderId(rotator, model) : null;
+    if (routed) return getProviderAdapter(routed);
     const matched = findProviderForModel(model, context);
     if (matched) return matched;
   }
@@ -1246,6 +1257,11 @@ export async function withRotation<T>(
     };
   };
 
+  // A pinned provider was chosen by the caller, which checked the switches.
+  if (!body.providerId && resolveModelRoute(rotator, model).kind === "off") {
+    return { ok: false, status: 404, errorText: modelOffMessage(body.displayModel || model) };
+  }
+
   const maxRetries = getStreamRecoveryMaxRetries(rotator);
   const maxAttempts = maxRetries + 1;
 
@@ -1609,6 +1625,11 @@ async function handleProxyRequest(
   const auth = await authenticateVirtualKey(req, body.model);
   if (!auth.authenticated) {
     sendAuthErrorResponse(res, auth);
+    return;
+  }
+  if (resolveModelRoute(rotator, body.model).kind === "off") {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: modelOffMessage(body.model), model: body.model }));
     return;
   }
   const apiKeyHash = auth.key?.tokenHash || (auth.rawKey ? hashKey(auth.rawKey) : null);
@@ -2588,6 +2609,13 @@ export function startProxy(
       return;
     }
 
+    // Dashboard Models page: providers, provider order and model switches.
+    if (pathname === "/api/catalog" || pathname.startsWith("/api/catalog/")) {
+      if (!requireAdmin(req, res)) return;
+      void serveCatalogApi(req, res, rotator, method ?? "GET", pathname);
+      return;
+    }
+
     // Admin-only model catalog used by the dashboard's Generate/Edit
     // Virtual Key modal so every active provider's models (Ollama, OpenCode
     // Zen, OpenAI Codex, Google Antigravity) can be selected.
@@ -2639,7 +2667,7 @@ export function startProxy(
     }
 
     if (method === "GET" && pathname === "/v1beta/models") {
-      serveGeminiModels(res);
+      serveGeminiModels(res, rotator);
       return;
     }
 

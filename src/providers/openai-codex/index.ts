@@ -1,5 +1,5 @@
 import type { AccountRuntime, AccountConfig } from "../../types.js";
-import type { ProviderAdapter, QuotaFetchContext, CredentialValidationResult } from "../adapter.js";
+import type { ModelListContext, ProviderAdapter, ProviderModel, QuotaFetchContext, CredentialValidationResult } from "../adapter.js";
 import { logger } from "../../logger.js";
 import {
   getCodexAccountId,
@@ -24,7 +24,7 @@ import {
   fetchCodexQuota,
   CODEX_QUOTA_MODEL_KEY,
 } from "./quota.js";
-import { isCodexRequestModel, isCodexProviderModelId } from "./catalog.js";
+import { getCodexModel, getCodexModels, isCodexRequestModel, isCodexProviderModelId } from "./catalog.js";
 
 const providerLog = logger.child("provider/openai-codex");
 const refreshFlights = new Map<string, Promise<void>>();
@@ -147,6 +147,22 @@ export const openaiCodexAdapter: ProviderAdapter = {
   clearQuotaCache: clearCodexQuotaCache,
 
   getKickstartModelForPool(): string | undefined { return "gpt-5.6-luna"; },
+
+  listModels(context: ModelListContext): ProviderModel[] {
+    // Discovery can surface other vendors' models; only GPT ids belong to Codex.
+    const ids = context.codexModels.length > 0
+      ? context.codexModels.filter((id) => isCodexRequestModel(id) || isCodexProviderModelId(id))
+      : getCodexModels().map((model) => model.id);
+    return ids.map((id) => {
+      const model = getCodexModel(id);
+      return {
+        id,
+        contextWindow: model?.contextWindow ?? null,
+        quotaPool: CODEX_QUOTA_MODEL_KEY,
+        source: model?.source === "allowlist" ? "catalog" : "discovered",
+      };
+    });
+  },
 
   ownsModel(model: string, context?: { codexModels?: Set<string> }): boolean {
     if (isCodexRequestModel(model)) return true;
