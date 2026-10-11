@@ -61,6 +61,18 @@ test("calculateCost uses Gemini 3.8 Flash rates for every native level", () => {
 	);
 });
 
+test("Ollama savings use current official standard input/output rates", () => {
+  for (const [model, cost] of [
+    ["glm-5.2", 5.8], ["kimi-k3", 18], ["minimax-m3", 3],
+    ["deepseek-v4.1-flash", 1.5], ["deepseek-v4-pro", 5.28],
+    ["mistral-large-4", 2.77], ["gemma4", 0.54],
+    ["ollama/gpt-oss:120b-cloud", 0.75],
+  ] as const) {
+    assert.equal(calculateCost(model, 1_000_000, 1_000_000), cost, model);
+  }
+  assert.equal(calculateCost("gpt-oss-120b-medium", 1_000_000, 1_000_000), 12);
+});
+
 test("generateRequestId produces unique prefixed strings", () => {
   const id1 = generateRequestId();
   const id2 = generateRequestId();

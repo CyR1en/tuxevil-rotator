@@ -153,7 +153,21 @@ describe("model resolution", () => {
 		});
 	});
 
-	it("uses the supplied Ollama Cloud free-tier pricing", () => {
+	it("resolves official Ollama cache rates and exact cloud aliases", () => {
+    for (const [model, cached] of [
+      ["deepseek-v4.1-flash", 0.006], ["deepseek-v4-pro", 0.044],
+      ["glm-5.2", 0.26], ["glm-5.3", 0.26], ["glm-5.3-flash", 0.03],
+      ["kimi-k3", 0.30], ["kimi-k2.7-code", 0.19], ["kimi-k2.6", 0.16],
+      ["minimax-m3", 0.12], ["minimax-m2.7", 0.06], ["mistral-large-4", 0.07],
+    ] as const) {
+      assert.equal(getModelPricing(model)?.cachingPer1M, cached, model);
+      assert.deepEqual(getModelPricing(`ollama/${model}-cloud`), getModelPricing(model));
+    }
+    assert.equal(getModelPricing("ollama/gpt-oss:unknown-cloud"), undefined);
+    assert.notDeepEqual(getModelPricing("deepseek-v4-pro:0813"), getModelPricing("deepseek-v4-pro"));
+  });
+
+	it("uses official Ollama Cloud starter-model pricing", () => {
 		assert.deepEqual(MODEL_PRICING["gemma4:31b"], {
 			inputPer1M: 0.14,
 			outputPer1M: 0.40,
