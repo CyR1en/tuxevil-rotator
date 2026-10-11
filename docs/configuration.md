@@ -118,6 +118,13 @@ credentials, Ollama models only to Ollama credentials, and Google models only to
 Google credentials. There is no automatic cross-provider fallback — a Codex
 request never lands on an Antigravity or Ollama account and vice versa.
 
+When more than one provider lists the exact same model id, `providerOrder`
+decides which one gets the request (by default OpenCode Zen, then OpenAI Codex,
+then Ollama Cloud, then Google Antigravity). A provider with no usable account
+is skipped in favor of the next one that lists the id. Providers and individual
+models can be turned off with `disabledProviders` and `disabledModels`, or from
+the dashboard's [Models page](dashboard.md#models).
+
 ## accounts.json
 
 The main configuration file. Created automatically by the `login` command, and editable by hand or from the dashboard (**Settings → Configuration**, which can also export and import it).
@@ -197,6 +204,11 @@ The main configuration file. Created automatically by the `login` command, and e
 | `compressionMode` | `off` | Prompt compression mode: `off`, `lite`, `rtk`, or `rtk+lite`. Can be overridden by the `X-Rotator-Compression` request header |
 | `typesafeRouting` | absent | Optional Jev semantic router. When enabled, `model: "auto"` selects among currently routable provider/model candidates |
 | `typesafeRouting.shadowMode` | `false` | Ask Jev for recommendations and log model-only decision metadata while continuing to serve the deterministic route |
+| `providerOrder` | `["opencode-zen", "openai-codex", "ollama", "google-antigravity"]` | Which provider gets a model id that more than one provider lists. Providers left out follow in the default order |
+| `disabledProviders` | `[]` | Providers that get no traffic. Their accounts stay signed in and keep reporting quota |
+| `disabledModels` | `[]` | `"<provider>/<model>"` entries that are left out of `/v1/models` and rejected with `404 model_not_found`, e.g. `"ollama/gpt-oss:20b"` |
+| `autoEnableNewModels` | `true` | When `false`, models a provider adds later stay off until turned on |
+| `reviewedModels` | absent | `"<provider>/<model>"` entries already decided while `autoEnableNewModels` is `false`. Written by the dashboard |
 
 ### TypeSafe Jev model selection
 

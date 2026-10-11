@@ -25,6 +25,8 @@ The dashboard is a single-page app; every view has its own URL. The page shell i
 | `GET` | `/dashboard` | Overview: routing health, model pools, items that need attention |
 | `GET` | `/dashboard/accounts` | Accounts table (`?status=`, `?q=`, `?provider=`, `?sort=`, `?dir=`) |
 | `GET` | `/dashboard/accounts/<email>` | Accounts table with that account's detail drawer open |
+| `GET` | `/dashboard/models` | Providers, provider order and model switches (`?filter=`, `?provider=`, `?q=`, `?sort=name`) |
+| `GET` | `/dashboard/models/<provider>` | Models page with that provider's drawer open |
 | `GET` | `/dashboard/requests` | Live request and event tail; `?view=history` for stored spend logs |
 | `GET` | `/dashboard/usage` | Token usage, savings, latency and the activity heatmap (`?range=`) |
 | `GET` | `/dashboard/keys` | Virtual key management |
@@ -56,6 +58,20 @@ Append `?mask=1` to any dashboard URL to open it with the privacy mask on.
 | `POST` | `/api/account-fresh-window-starts/<email>/on` | Allow one account to override the global fresh-window block |
 | `POST` | `/api/account-fresh-window-starts/<email>/off` | Return one account to the global fresh-window policy |
 | `POST` | `/api/self-update` | Trigger npm self-update to latest version |
+
+### Models (providers and model switches)
+
+Every change answers with the updated catalog, the same shape as `GET /api/catalog`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/catalog` | Providers in routing order and every provider's models, each with `offReason` (`provider`, `model`, `review` or `null`) and whether requests for its id go to that provider (`routed`) |
+| `POST` | `/api/catalog/refresh` | Re-read the Ollama and Codex model lists now |
+| `POST` | `/api/catalog/providers/<provider>/on` · `/off` | Turn a provider on or off for routing |
+| `PUT` | `/api/catalog/provider-order` | Body `{ "order": ["ollama", …] }`; providers left out follow in the default order |
+| `POST` | `/api/catalog/models/on` · `/off` | Body `{ "models": ["ollama/gpt-oss:20b", …] }` |
+| `POST` | `/api/catalog/new-models/on` · `/off` | Whether models a provider adds later turn on automatically |
+| `POST` | `/api/catalog/accounts/<email>/<provider>/on` · `/off` | Turn one provider on or off for one account |
 
 ### Virtual Key Management (requires PostgreSQL)
 
