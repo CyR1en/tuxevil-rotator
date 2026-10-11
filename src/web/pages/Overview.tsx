@@ -1,7 +1,7 @@
 // Overview: is routing working, how long will each model last, and what
 // needs the operator. Model pools come first; accounts are one click away.
 
-import { Fragment, type JSX } from "preact";
+import { type JSX } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import type { DashboardOverview } from "../../dashboard-types.js";
 import { buildAttention, SEVERITY_ICON, SEVERITY_TONE, type AttentionAction, type AttentionItem } from "../lib/attention.js";
@@ -364,20 +364,17 @@ function ProvidersPanel({ providers }: { providers: ProviderGroup[] }): JSX.Elem
               </tr>
             </thead>
             <tbody>
-              {providers.map((group) => (
-                <Fragment key={group.provider}>
-                  <tr>
+              {providers.flatMap((group) => group.pools.length > 0 ? group.pools.map((pool) => (
+                <PoolRow key={pool.key} pool={pool} expanded={open === pool.key} onToggle={() => setOpen(open === pool.key ? null : pool.key)} />
+              )) : [
+                  <tr key={group.provider}>
                     <th scope="row">{providerLabel(group.provider)}</th>
                     <td colSpan={6} class="muted">
                       {pluralize(group.accounts.length, "connected account")}
-                      {group.pools.length === 0 && " · Quota unavailable"}
+                      {" · Quota unavailable"}
                     </td>
                   </tr>
-                  {group.pools.map((pool) => (
-                    <PoolRow key={pool.key} pool={pool} expanded={open === pool.key} onToggle={() => setOpen(open === pool.key ? null : pool.key)} />
-                  ))}
-                </Fragment>
-              ))}
+              ])}
             </tbody>
           </table>
         </div>
