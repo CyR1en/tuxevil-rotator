@@ -5,6 +5,7 @@ import type { AccountTier, Config, SpendLog, VirtualKey } from "../../types.js";
 import type {
   ActivityResponse,
   DashboardSnapshot,
+  ModelCatalogResponse,
   SessionInfo,
   UsageRange,
   UsageResponse,
@@ -178,6 +179,23 @@ export const api = {
     request<{ ok: true; key: VirtualKey }>("PUT", `/api/keys/${enc(hash)}`, patch),
   deleteKey: (hash: string) => request("DELETE", `/api/keys/${enc(hash)}`),
   models: () => request<{ ok: true; data: ModelCatalogEntry[] }>("GET", "/api/models"),
+
+  catalog: () => request<ModelCatalogResponse>("GET", "/api/catalog"),
+  refreshCatalog: () => request<ModelCatalogResponse>("POST", "/api/catalog/refresh"),
+  setProviderEnabled: (id: string, on: boolean) =>
+    request<ModelCatalogResponse>("POST", `/api/catalog/providers/${enc(id)}/${on ? "on" : "off"}`),
+  setProviderOrder: (order: string[]) =>
+    request<ModelCatalogResponse>("PUT", "/api/catalog/provider-order", { order }),
+  /** Keys are "<provider>/<model>". */
+  setModelsEnabled: (models: string[], on: boolean) =>
+    request<ModelCatalogResponse>("POST", `/api/catalog/models/${on ? "on" : "off"}`, { models }),
+  setAutoEnableNewModels: (on: boolean) =>
+    request<ModelCatalogResponse>("POST", `/api/catalog/new-models/${on ? "on" : "off"}`),
+  setAccountProviderEnabled: (email: string, providerId: string, on: boolean) =>
+    request<ModelCatalogResponse>(
+      "POST",
+      `/api/catalog/accounts/${enc(email)}/${enc(providerId)}/${on ? "on" : "off"}`,
+    ),
 
   spendLogs: (q: SpendQuery) =>
     request<{ ok: true; logs: SpendLog[]; total: number; summary: SpendSummary }>(

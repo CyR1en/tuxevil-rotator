@@ -27,6 +27,7 @@ import {
   Button,
   Countdown,
   KeyValue,
+  Link,
   Meter,
   Pill,
   ProviderTags,
@@ -34,6 +35,7 @@ import {
   StatusPill,
 } from "../components/ui.js";
 import { accountMenuItems } from "./Accounts.js";
+import { providerPath } from "../state/router.js";
 
 export function AccountDetail({ email, onClose }: { email: string; onClose: () => void }): JSX.Element {
   const data = overview.value!;
@@ -210,7 +212,8 @@ function ProviderProblems({ account }: { account: DashboardAccount }): JSX.Eleme
   const invalid = Object.entries(account.invalidProviders || {});
   const cooldowns = Object.entries(account.providerCooldowns || {}).filter(([, until]) => until > now.value);
   const modelCooldowns = Object.entries(account.cooldownsByModel || {}).filter(([, until]) => until > now.value);
-  if (invalid.length === 0 && cooldowns.length === 0 && modelCooldowns.length === 0) return null;
+  const turnedOff = account.disabledProviders ?? [];
+  if (invalid.length === 0 && cooldowns.length === 0 && modelCooldowns.length === 0 && turnedOff.length === 0) return null;
   return (
     <section class="callout tone-warn">
       <Icon name="clock" size={16} />
@@ -228,6 +231,11 @@ function ProviderProblems({ account }: { account: DashboardAccount }): JSX.Eleme
         {invalid.map(([provider, reason]) => (
           <div key={`i-${provider}`}>
             <strong>{providerLabel(provider)}</strong> credential rejected: {masker.value.text(reason)}
+          </div>
+        ))}
+        {turnedOff.map((provider) => (
+          <div key={`o-${provider}`}>
+            <strong>{providerLabel(provider)}</strong> is turned off for this account. <Link href={providerPath(provider)}>Manage</Link>
           </div>
         ))}
       </div>

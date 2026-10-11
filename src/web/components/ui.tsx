@@ -154,12 +154,16 @@ export function Switch({
   checked,
   onChange,
   label,
+  ariaLabel,
   description,
   disabled,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void | Promise<unknown>;
+  /** Visible text; empty for a bare switch, which then needs `ariaLabel`. */
   label: string;
+  /** Accessible name when the visible label alone is not descriptive. */
+  ariaLabel?: string;
   description?: ComponentChildren;
   disabled?: boolean;
 }): JSX.Element {
@@ -170,6 +174,7 @@ export function Switch({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel}
         class={`switch${checked ? " is-on" : ""}`}
         disabled={disabled || busy}
         onClick={async () => {
@@ -184,7 +189,7 @@ export function Switch({
         <span class="switch-track" aria-hidden="true">
           <span class="switch-thumb" />
         </span>
-        <span class="switch-label">{label}</span>
+        {label && <span class="switch-label">{label}</span>}
       </button>
       {description && <div class="switch-description">{description}</div>}
     </div>
