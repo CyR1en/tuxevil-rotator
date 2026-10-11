@@ -9,7 +9,7 @@ import { ACCOUNT_FILTERS, matchesQuery, sortAccounts } from "../src/web/lib/acco
 import { modelColor } from "../src/web/lib/colors.js";
 import { formatCompact, formatDuration, formatMs, formatUsd } from "../src/web/lib/format.js";
 import { createMasker } from "../src/web/lib/mask.js";
-import { buildPools, poolKeyForModel } from "../src/web/lib/pools.js";
+import { buildPools, buildProviderGroups, poolKeyForModel } from "../src/web/lib/pools.js";
 import { errorHint, isKickstartable, quotaProvider } from "../src/web/lib/status.js";
 import {
   aggregateBars,
@@ -496,5 +496,24 @@ describe("status and formatting helpers", () => {
     assert.equal(modelColor("kimi-k3"), "#047857");
     assert.equal(modelColor("gpt-5.6-terra"), "#eab308");
     assert.notEqual(modelColor("gpt-5.6-sol"), modelColor("claude-opus-4-6-thinking"));
+  });
+});
+
+describe("overview providers", () => {
+  it("includes Ollama without quota and separates quotas by provider on shared accounts", () => {
+    const shared = account("shared@x.dev", { provider: "google-antigravity+ollama", quota: [quota("claude", 80)] });
+    const groups = buildProviderGroups(overview({ accounts: [shared] }), NOW);
+    assert.deepEqual(groups.map(g => g.provider), ["google-antigravity", "ollama"]);
+    assert.equal(groups[0].pools.length, 1);
+    assert.equal(groups[1].pools.length, 0);
+    assert.deepEqual(groups[1].accounts.map(a => a.email), [shared.email]);
+  });
+  it("keeps Ollama session and weekly pools together without duplicating the provider", () => {
+    const groups = buildProviderGroups(overview({ accounts: [account("ollama@x.dev", {
+      provider: "ollama", quota: [quota("session", 70), quota("weekly", 30)],
+    })] }), NOW);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].provider, "ollama");
+    assert.equal(groups[0].pools.length, 2);
   });
 });

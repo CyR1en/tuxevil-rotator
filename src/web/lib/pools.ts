@@ -8,7 +8,7 @@ import type {
   DashboardRoutingAccount,
   DashboardRoutingDiagnostics,
 } from "../../dashboard-types.js";
-import { isOutOfService, providerRank, quotaProvider } from "./status.js";
+import { isOutOfService, providerRank, providerIds, quotaProvider } from "./status.js";
 
 /** Rough requests per full quota window, used only to weight pooled capacity. */
 const TIER_CAPACITY: Record<string, number> = {
@@ -196,4 +196,32 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
       providerRank(a.provider) - providerRank(b.provider) ||
       a.name.localeCompare(b.name),
   );
+}
+
+export interface ProviderGroup {
+  provider: string;
+  accounts: DashboardAccount[];
+  pools: ModelPool[];
+}
+
+/** Connected providers remain visible even before their first successful quota poll. */
+export function buildProviderGroups(overview: DashboardOverview, now: number): ProviderGroup[] {
+  const groups = new Map<string, ProviderGroup>();
+  const ensure = (provider: string): ProviderGroup => {
+    let group = groups.get(provider);
+    if (!group) {
+      group = { provider, accounts: [], pools: [] };
+      groups.set(provider, group);
+    }
+    return group;
+  };
+  for (const account of overview.accounts) {
+    const providers = new Set([
+      ...providerIds(account),
+      ...account.quota.map(quotaProvider),
+    ]);
+    for (const provider of providers) ensure(provider).accounts.push(account);
+  }
+  for (const pool of buildPools(overview, now)) ensure(pool.provider).pools.push(pool);
+  return [...groups.values()].sort((a, b) => providerRank(a.provider) - providerRank(b.provider));
 }
