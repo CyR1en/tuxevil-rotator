@@ -1026,6 +1026,79 @@ describe("effort-based routing endpoint e2e", () => {
 		}
 	});
 
+	it("decodes a model listed by Zen and Ollama with the parser of the provider that served it", async () => {
+		const account = createAccount();
+		account.config.credentials = [{ provider: "ollama", apiKey: "ollama-secret" }];
+		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (input, init) => {
+			if (!String(input).endsWith("/api/chat")) return originalFetch(input, init);
+			return new Response(
+				`${JSON.stringify({ model: "big-pickle", message: { role: "assistant", content: "from ollama" }, done: true, prompt_eval_count: 3, eval_count: 2 })}\n`,
+				{ status: 200, headers: { "content-type": "application/x-ndjson" } },
+			);
+		}) as typeof fetch;
+		const rotator = {
+			...createE2eRotator(account, tracking),
+			getConfig: () => ({ accounts: [], providerOrder: ["ollama"] }),
+			getOllamaModels: () => ["big-pickle"],
+			hasActiveProvider: () => true,
+		} as unknown as AccountRotator;
+		const proxy = startProxy(rotator, 0, "127.0.0.1");
+		await once(proxy, "listening");
+		const port = (proxy.address() as AddressInfo).port;
+		try {
+			const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "big-pickle", messages: [{ role: "user", content: "hi" }] }),
+			});
+			assert.equal(response.status, 200);
+			const body = await response.json() as { choices: Array<{ message: { content: string } }> };
+			assert.equal(body.choices[0].message.content, "from ollama");
+		} finally {
+			globalThis.fetch = originalFetch;
+			proxy.closeAllConnections?.();
+			await closeServer(proxy);
+		}
+	});
+
+	it("rejects aliases whose upstream model is turned off", async () => {
+		setEffortRoutingOverride({
+			"fast-pro": { defaultEffort: "low", targets: { low: "gemini-3.1-pro-low", high: "gemini-3.1-pro-high" } },
+		});
+		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
+		const rotator = {
+			...createE2eRotator(createAccount(), tracking),
+			getConfig: () => ({
+				accounts: [],
+				disabledModels: ["google-antigravity/gemini-3.1-pro-high", "google-antigravity/gemini-3.8-flash-low"],
+			}),
+		} as unknown as AccountRotator;
+		const proxy = startProxy(rotator, 0, "127.0.0.1");
+		await once(proxy, "listening");
+		const port = (proxy.address() as AddressInfo).port;
+		const chat = (body: Record<string, unknown>) =>
+			fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], ...body }),
+			});
+		try {
+			// Effort routing resolves fast-pro at high effort to a turned-off target.
+			let response = await chat({ model: "fast-pro", reasoning_effort: "high" });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { code: string } }).error.code, "model_not_found");
+			// whisper-1 is sent upstream as gemini-3.8-flash-low.
+			response = await chat({ model: "whisper-1" });
+			assert.equal(response.status, 404);
+			assert.equal(tracking.requestLogs.length, 0);
+		} finally {
+			proxy.closeAllConnections?.();
+			await closeServer(proxy);
+		}
+	});
+
 	it("native catalog exposes concrete targets that generateContent forwards unchanged", async () => {
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {

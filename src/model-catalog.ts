@@ -39,10 +39,14 @@ export interface ModelCatalogSource {
 
 export type ModelOffReason = "provider" | "model" | "review";
 
+/** The model's own switch, regardless of its provider's switch. */
+export type ModelSwitch = "on" | "off" | "review";
+
 export interface CatalogModel extends ProviderModel {
   providerId: string;
   /** Why the model is off, or null when it is served. */
   offReason: ModelOffReason | null;
+  modelSwitch: ModelSwitch;
 }
 
 export type ModelRoute =
@@ -96,12 +100,17 @@ function readSettings(config: Partial<Config> | undefined): ModelSettings {
   };
 }
 
+function modelSwitchFor(settings: ModelSettings, providerId: string, modelId: string): ModelSwitch {
+  const key = fold(modelKey(providerId, modelId));
+  if (settings.disabledModels.has(key)) return "off";
+  if (!settings.autoEnableNewModels && !settings.reviewedModels.has(key)) return "review";
+  return "on";
+}
+
 function offReasonFor(settings: ModelSettings, providerId: string, modelId: string): ModelOffReason | null {
   if (settings.disabledProviders.has(providerId)) return "provider";
-  const key = fold(modelKey(providerId, modelId));
-  if (settings.disabledModels.has(key)) return "model";
-  if (!settings.autoEnableNewModels && !settings.reviewedModels.has(key)) return "review";
-  return null;
+  const own = modelSwitchFor(settings, providerId, modelId);
+  return own === "off" ? "model" : own === "review" ? "review" : null;
 }
 
 function listFor(source: ModelCatalogSource, settings: ModelSettings): CatalogModel[] {
@@ -112,7 +121,12 @@ function listFor(source: ModelCatalogSource, settings: ModelSettings): CatalogMo
   const out: CatalogModel[] = [];
   for (const providerId of settings.order) {
     for (const model of getProviderAdapter(providerId).listModels(context)) {
-      out.push({ ...model, providerId, offReason: offReasonFor(settings, providerId, model.id) });
+      out.push({
+        ...model,
+        providerId,
+        offReason: offReasonFor(settings, providerId, model.id),
+        modelSwitch: modelSwitchFor(settings, providerId, model.id),
+      });
     }
   }
   return out;
@@ -165,7 +179,7 @@ export function resolveModelRoute(source: ModelCatalogSource, model: string): Mo
       ollamaModels: new Set(source.getOllamaModels?.() ?? []),
       codexModels: new Set(source.getCodexModels?.() ?? []),
     });
-    if (owner && settings.disabledProviders.has(owner.id)) {
+    if (owner && isTurnedOff(settings, catalog, owner.id, model)) {
       return { kind: "off", providerIds: [owner.id] };
     }
     return { kind: "unlisted" };
@@ -177,6 +191,56 @@ export function resolveModelRoute(source: ModelCatalogSource, model: string): Mo
   }
   const chosen = on.find((entry) => source.hasActiveProvider?.(entry.providerId) ?? true) ?? on[0];
   return { kind: "provider", providerId: chosen.providerId, modelId: chosen.id };
+}
+
+/**
+ * Whether `providerId` may not serve `model`: the provider is off, the model's
+ * key is turned off, or the provider lists it and it waits for review. Unlisted
+ * ids are checked against explicit keys only, since review applies to listed
+ * models.
+ */
+function isTurnedOff(settings: ModelSettings, catalog: CatalogModel[], providerId: string, model: string): boolean {
+  if (settings.disabledProviders.has(providerId)) return true;
+  const wanted = fold(model);
+  const listed = catalog.find((entry) => entry.providerId === providerId && fold(entry.id) === wanted);
+  if (listed) return listed.offReason !== null;
+  return settings.disabledModels.has(fold(modelKey(providerId, model)));
+}
+
+/** The parts of a request the switches are checked against. */
+export interface RequestModels {
+  /** Id sent upstream (after aliasing). */
+  model: string;
+  /** Catalog id the request resolved to before upstream aliasing, if different. */
+  catalogModel?: string;
+  /** Provider already chosen for the request. */
+  providerId?: string;
+}
+
+/**
+ * Whether a request about to be sent targets a model or provider that is
+ * turned off. Checks the catalog id and the upstream id (and the alias the
+ * upstream id stands for), against the pinned provider when there is one and
+ * against routing otherwise.
+ */
+export function isRequestOff(source: ModelCatalogSource, request: RequestModels): boolean {
+  const ids = new Set<string>();
+  for (const id of [request.catalogModel, request.model]) {
+    if (!id) continue;
+    ids.add(id);
+    ids.add(applyModelAlias(id));
+  }
+  if (request.providerId) {
+    const settings = readSettings(source.getConfig?.());
+    const catalog = listFor(source, settings);
+    return [...ids].some((id) => isTurnedOff(settings, catalog, request.providerId!, id));
+  }
+  return [...ids].some((id) => resolveModelRoute(source, id).kind === "off");
+}
+
+/** Whether one provider may send this model upstream (benchmarks, kickstarts). */
+export function isProviderModelOff(source: ModelCatalogSource, providerId: string, model: string): boolean {
+  return isRequestOff(source, { model, providerId });
 }
 
 /** Provider that serves a model, or null to fall back to the caller's own checks. */

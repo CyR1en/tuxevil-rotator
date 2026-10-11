@@ -11,6 +11,8 @@ process.env.TUXEVIL_ROTATOR_DIR = mkdtempSync(join(tmpdir(), "rotator-models-"))
 
 import { initDb } from "../src/db-store.js";
 import { AccountRotator } from "../src/rotator.js";
+import { benchmarkAccount } from "../src/proxy.js";
+import { dynamicCatalog } from "../src/providers/google-antigravity/dynamic-catalog.js";
 import type { AccountConfig, Config } from "../src/types.js";
 
 before(async () => {
@@ -98,5 +100,50 @@ describe("Models page switches in the rotator", () => {
       rotator.getModelCatalog().find((entry: { id: string }) => entry.id === "gemma4:31b").offReason,
       "model",
     );
+  });
+  it("picks the pool of the provider a request is pinned to, even for a dynamic Google id", () => {
+    dynamicCatalog.restoreDiscoveredQuotaPools({ "gemini-9-shared": "gemini" });
+    const rotator = makeRotator();
+    rotator.setOllamaModels(["gemini-9-shared"]);
+    assert.equal(rotator.resolveQuotaModelKeyForDisplay("gemini-9-shared", "ollama"), "monthly");
+    assert.equal(rotator.resolveQuotaModelKeyForDisplay("gemini-9-shared", "google-antigravity"), "gemini-9-shared");
+  });
+
+  it("reports an account whose providers are all off as off, not ready", async () => {
+    const rotator = makeRotator({ disabledProviders: ["google-antigravity"] });
+    assert.notEqual(rotator.getStatus().accounts[0].status, "off");
+    await rotator.setAccountProviderEnabled(ACCOUNT.email, "ollama", false);
+    assert.equal(rotator.getStatus().accounts[0].status, "off");
+    await rotator.setAccountProviderEnabled(ACCOUNT.email, "ollama", true);
+  });
+
+  it("refuses to kickstart with a turned-off model", async () => {
+    const rotator = makeRotator({ disabledModels: ["google-antigravity/gemini-3-flash"] });
+    const result = await rotator.kickstartTimerForAccount(ACCOUNT.email, "gemini", false);
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /model turned off/);
+  });
+
+  it("skips benchmarks for providers that are turned off", async () => {
+    const rotator = makeRotator({ disabledProviders: ["google-antigravity"] });
+    const result = await benchmarkAccount(rotator, rotator.accounts[0]);
+    assert.equal(result.status, "skipped");
+    assert.match(result.error ?? "", /turned off/);
+  });
+
+  it("loads the live model lists before snapshotting for review", async () => {
+    const rotator = makeRotator();
+    rotator.refreshModelCatalogs = async () => rotator.setOllamaModels(["gemma4:31b", "late-arrival"]);
+    await rotator.setAutoEnableNewModels(false);
+    assert.ok(rotator.getConfig().reviewedModels.includes("ollama/late-arrival"));
+  });
+
+  it("does not rewrite the config when a switch is already in that state", async () => {
+    const rotator = makeRotator();
+    const turnedOff = () =>
+      rotator.getStatus().recentEvents.filter((event: { message: string }) => /turned Ollama Cloud off/.test(event.message)).length;
+    await rotator.setProviderEnabled("ollama", false);
+    await rotator.setProviderEnabled("ollama", false);
+    assert.equal(turnedOff(), 1);
   });
 });

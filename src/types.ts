@@ -718,7 +718,9 @@ export interface AccountStatus {
     | "exhausted"
     | "disabled"
     | "flagged"
-    | "error";
+    | "error"
+    // Every provider on the account is turned off on the Models page.
+    | "off";
   // Which models this account is currently active for
   activeForModels: string[];
   requestsSinceRotation: number;

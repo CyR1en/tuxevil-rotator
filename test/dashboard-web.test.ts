@@ -517,6 +517,7 @@ describe("models page", () => {
     quotaPool: providerId === "ollama" ? "monthly" : "opencode-zen",
     source: "catalog",
     offReason: null,
+    modelSwitch: extra.offReason === "model" ? "off" : extra.offReason === "review" ? "review" : "on",
     routed: true,
     ...extra,
   });
@@ -587,6 +588,19 @@ describe("models page", () => {
     assert.equal(by["opencode-zen"].state, "unavailable");
     assert.equal(by["google-antigravity"].state, "off");
     assert.equal(summarizeProviders(catalog([]), overview(), NOW)[0].state, "not-connected");
+  });
+
+  it("does not count cooling or switched-off accounts as capacity", () => {
+    const data = overview({
+      accounts: [
+        account("a@x.io", { provider: "ollama", quota: [quota("monthly", 60, { providerId: "ollama" })] }),
+        account("b@x.io", { provider: "ollama", disabledProviders: ["ollama"], quota: [quota("monthly", 0, { providerId: "ollama" })] }),
+        account("c@x.io", { provider: "ollama", providerCooldowns: { ollama: NOW + H }, quota: [quota("monthly", 60, { providerId: "ollama" })] }),
+      ],
+    });
+    const ollama = summarizeProviders(catalog([entry("ollama", "glm-5.1")]), data, NOW).find((s) => s.provider.id === "ollama")!;
+    assert.equal(ollama.canServe, 1);
+    assert.deepEqual(ollama.quotas.map((q) => [q.key, q.percent]), [["monthly", 60]]);
   });
 
   it("reorders providers", () => {

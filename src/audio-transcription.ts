@@ -14,7 +14,7 @@ import type { AccountRotator } from "./rotator.js";
 import { withRotation, type RequestBody } from "./proxy.js";
 import { extractRetryAfterSeconds } from "./compat.js";
 import { getModelSpec } from "./compat/model-specs.js";
-import { modelOffMessage, resolveModelRoute } from "./model-catalog.js";
+import { isRequestOff, modelOffMessage } from "./model-catalog.js";
 
 const audioLogger = logger.child("audio-transcription");
 const AUDIO_SESSION_START_TIMEOUT_MS = 10_000;
@@ -936,7 +936,7 @@ export async function handleOpenAIAudioTranscriptions(
     sendAuthErrorResponse(res, modelAuth);
     return;
   }
-  if (rotator && resolveModelRoute(rotator, requestedModel ?? "whisper-1").kind === "off") {
+  if (rotator && isRequestOff(rotator, { model: executedModel, catalogModel: requestedModel ?? "whisper-1" })) {
     logRequest("failure");
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(
@@ -999,6 +999,10 @@ export async function handleOpenAIAudioTranscriptions(
       } catch (rotatorErr) {
         if (clientAbortController.signal.aborted || isRotatorTranscriptionTimeout(rotatorErr)) {
           throw rotatorErr;
+        }
+        // A switch turned off mid-request: the fallback would bypass it.
+        if (isRequestOff(rotator, { model: executedModel, catalogModel: requestedModel ?? "whisper-1" })) {
+          throw new AudioTranscriptionError(modelOffMessage(requestedModel ?? "whisper-1"), 404);
         }
         audioLogger.warn(
           `Rotator transcription failed: ${(rotatorErr as Error).message}, attempting Language Server fallback`,
@@ -1066,7 +1070,7 @@ export async function handleOpenAIAudioTranscriptions(
     logRequest("failure");
     audioLogger.error(`Transcription failed: ${error.message}`);
     const status =
-      err instanceof AudioTranscriptionError && [429, 502, 503, 504].includes(err.status) ? err.status : 500;
+      err instanceof AudioTranscriptionError && [404, 429, 502, 503, 504].includes(err.status) ? err.status : 500;
     let retrySec: number | null = null;
     if (err instanceof AudioTranscriptionError && (status === 429 || status === 503)) {
       retrySec = err.retryAfterMs
@@ -1082,8 +1086,8 @@ export async function handleOpenAIAudioTranscriptions(
         JSON.stringify({
           error: {
             message: `Transcription error: ${error.message}`,
-            type: status === 429 ? "rate_limit_error" : "api_error",
-            code: status === 429 ? "rate_limit_exceeded" : null,
+            type: status === 429 ? "rate_limit_error" : status === 404 ? "invalid_request_error" : "api_error",
+            code: status === 429 ? "rate_limit_exceeded" : status === 404 ? "model_not_found" : null,
             ...(retrySec ? { retry_after_seconds: retrySec } : {}),
           },
         }),
@@ -1934,6 +1938,9 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
         if (this.abortController.signal.aborted || segmentDeadlineController.signal.aborted) {
           throw rotatorErr;
         }
+        if (isRequestOff(this.rotator, { model: this.model })) {
+          throw new AudioTranscriptionError(modelOffMessage(this.model), 404);
+        }
         audioLogger.warn(
           `[RotatorAudioSession] Segment #${item.seqId} rotator transcription failed: ${(rotatorErr as Error)?.message || rotatorErr}, attempting Language Server fallback`,
         );
@@ -2286,6 +2293,14 @@ async function handleClientCommand(client: AudioWsClient, cmd: any): Promise<voi
     const requested = cmd.antigravityModel || cmd.model ? String(cmd.antigravityModel || cmd.model) : undefined;
     const model = resolveClientExecutedModel(client, requested);
     if (!(await authorizeClientModel(client, model, requested))) return;
+    if (
+      client.rotator &&
+      typeof client.rotator.getActiveAccount === "function" &&
+      isRequestOff(client.rotator, { model, catalogModel: requested ?? "whisper-1" })
+    ) {
+      client.send({ type: "antigravity_error", event: "error", message: modelOffMessage(requested ?? model) });
+      return;
+    }
     if (client.antigravity) {
       finishClientSpend(client, "success");
       destroyClientSession(client);

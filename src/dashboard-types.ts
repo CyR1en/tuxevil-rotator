@@ -210,6 +210,8 @@ export interface CatalogModelEntry {
   source: "catalog" | "discovered";
   /** Why the model is off: its provider, its own switch, or waiting for review. */
   offReason: "provider" | "model" | "review" | null;
+  /** The model's own switch, whatever its provider's switch says. */
+  modelSwitch: "on" | "off" | "review";
   /** Requests for this id go to this provider. */
   routed: boolean;
 }

@@ -165,4 +165,24 @@ describe("Models page HTTP routes", () => {
     assert.equal(response.status, 400);
     assert.match(((await response.json()) as { error: { message: string } }).error.message, /OpenAI Codex/);
   });
+  it("checks native requests, including a provider named in the body", async () => {
+    await start(makeRotator({ disabledModels: ["ollama/big-pickle", "ollama/gemma4:31b"] }));
+    let response = await post("/v1internal:generateContent", {
+      model: "big-pickle",
+      providerId: "ollama",
+      request: { contents: [] },
+    });
+    assert.equal(response.status, 404);
+    assert.match(((await response.json()) as { error: string }).error, /turned off/);
+
+    response = await post("/api/chat", { model: "gemma4:31b", messages: [{ role: "user", content: "hi" }] });
+    assert.equal(response.status, 404);
+  });
+
+  it("answers a wrong method on a known catalog path with 405", async () => {
+    await start(makeRotator());
+    const response = await admin("/api/catalog/refresh");
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "POST");
+  });
 });

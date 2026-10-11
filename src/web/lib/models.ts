@@ -152,10 +152,11 @@ export function isTurnedOffForAccount(account: DashboardAccount, providerId: str
 }
 
 /** Account can take this provider's traffic now. */
-export function canServeProvider(account: DashboardAccount, providerId: string): boolean {
+export function canServeProvider(account: DashboardAccount, providerId: string, now: number): boolean {
   return (
     canServe(account) &&
     !account.invalidProviders?.[providerId] &&
+    (account.providerCooldowns?.[providerId] ?? 0) <= now &&
     !isTurnedOffForAccount(account, providerId)
   );
 }
@@ -169,11 +170,15 @@ export function summarizeProviders(
   overview: DashboardOverview,
   now: number,
 ): ProviderSummary[] {
-  const pools = buildPools(overview, now);
   return catalog.providers.map((provider, rank) => {
     const accounts = overview.accounts.filter((account) => hasProvider(account, provider.id));
     const rejected = accounts.filter((account) => Boolean(account.invalidProviders?.[provider.id]));
-    const servable = accounts.filter((account) => canServeProvider(account, provider.id)).length;
+    const servable = accounts.filter((account) => canServeProvider(account, provider.id, now)).length;
+    // Quota from the accounts this provider may use: switched-off ones add no capacity.
+    const pools = buildPools(
+      { ...overview, accounts: overview.accounts.filter((account) => !isTurnedOffForAccount(account, provider.id)) },
+      now,
+    );
     const models = catalog.models.filter((entry) => entry.providerId === provider.id);
     const state: ProviderState = !provider.enabled
       ? "off"

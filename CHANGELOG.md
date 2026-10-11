@@ -9,6 +9,8 @@
   - Set the provider order that decides who serves a model id more than one provider lists.
   - Optionally hold models a provider adds later until you review them.
   - Settings are saved as `providerOrder`, `disabledProviders`, `disabledModels`, `autoEnableNewModels` and `reviewedModels` in the configuration file; per-account switches are kept with the account's state. New `/api/catalog` admin endpoints back the page.
+  - The switches also cover requests that reach a model through an alias or effort routing, native `/v1internal` and `/api/chat` requests, audio transcription (with no Language Server fallback around them), benchmarks and warm-up requests.
+  - Accounts with every provider turned off show a new **Off** status instead of **Ready**.
 
 ### Changed
 
@@ -24,6 +26,7 @@
 ### Fixed
 
 - **Dashboard dev server**: `npm run dashboard:dev` no longer crashes on `GET /v1/models`.
+- **Settings writes**: writes to one settings key now run in order, so quick successive changes can no longer leave an older configuration or state on disk.
 - **Codex reauthentication state**: A successful Codex login now clears the previous provider rejection and cached Codex access token, so reauthenticated accounts leave Needs attention immediately.
 
 ## [4.0.0] - 2026-10-05

@@ -35,6 +35,7 @@ Every page uses the same labels. The value in parentheses is what `/api/status` 
 | **Erroring** (`error`) | Recent requests failed; review the error before it escalates to Disabled |
 | **Disabled** (`disabled`) | Out of service after repeated errors or by an operator; re-enable once fixed |
 | **Quarantined** (`flagged`) | Flagged by the provider or quarantined by an operator; excluded from routing until restored |
+| **Off** (`off`) | Every provider on the account is turned off on the [Models page](#models); it stays signed in and gets no traffic |
 
 | Routing state | Meaning |
 |---|---|
@@ -88,9 +89,9 @@ Clicking an account opens its drawer at `/dashboard/accounts/<email>`.
 The Models page decides which providers serve traffic and which models clients can call. Changes apply immediately and are saved in the configuration file.
 
 - **Providers**: one row per provider with its accounts (and how many can serve now), how many of its models are on, pooled quota and status: **Healthy**, **Needs sign-in** (a credential was rejected), **No account can serve**, **Not connected** or **Off**.
-  - **Order**: when more than one provider lists the same model id, the provider higher in the list gets the request. Drag a row, or use **Move up** and **Move down** in its **⋯** menu. A provider with no usable account is skipped for the next one that lists the id.
-  - **Routing switch**: turning a provider off stops all traffic to it. Its accounts stay signed in and keep reporting quota; models only it lists leave `/v1/models`, and a model another provider also lists moves to that provider.
-- **Models**: one row per model id, with the providers that list it in routing order, its context window, quota pool and requests in the last hour. Filter by **On**, **Off**, **Shared** (listed by more than one provider) or **Waiting for review**, by provider, or by searching the id. A model that is off is left out of `/v1/models`, and requests for it get `404 model_not_found` naming the dashboard. A shared model expands to one switch per provider.
+  - **Order**: when more than one provider lists the same model id, the provider higher in the list gets the request. Drag a row, or use **Move up** and **Move down** in its **⋯** menu. A provider none of whose accounts is in service (disabled, quarantined or switched off) is skipped for the next one that lists the id.
+  - **Routing switch**: turning a provider off stops all traffic to it, including benchmarks and warm-up requests. Its accounts stay signed in and keep reporting quota; models only it lists leave `/v1/models`, and a model another provider also lists moves to that provider.
+- **Models**: one row per model id, with the providers that list it in routing order, its context window, quota pool and requests in the last hour. Filter by **On**, **Off**, **Shared** (listed by more than one provider) or **Waiting for review**, by provider, or by searching the id. A model that is off is left out of `/v1/models`, and requests for it get `404 model_not_found` naming the dashboard, including requests that reach it through an alias or effort routing. A shared model expands to one switch per provider.
 - **New models**: **Turn on automatically** (the default) serves models as soon as a provider lists them. **Wait for review** keeps models found later off, under **Waiting for review**, until you turn them on.
 
 Clicking a provider opens its drawer at `/dashboard/models/<provider>`: its status with **Sign in again** for a rejected credential, the routing switch, its accounts with a **Use for** switch that turns the provider off for that account only (the account's other providers keep serving), and its models.

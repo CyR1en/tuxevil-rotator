@@ -239,7 +239,10 @@ function activeFor(account: MockAccount): string[] {
 
 function getStatus() {
   const t = now();
-  const statusOf = (a: MockAccount) => (a.status === "ready" && activeFor(a).length > 0 ? "active" : a.status);
+  const allOff = (a: MockAccount) =>
+    a.provider.split("+").every((id) => a.disabledProviders?.includes(id) || modelCatalog.isProviderTurnedOff(modelConfig(), id));
+  const statusOf = (a: MockAccount) =>
+    a.status === "flagged" || a.status === "disabled" ? a.status : allOff(a) ? "off" : a.status === "ready" && activeFor(a).length > 0 ? "active" : a.status;
   const accountStatuses = accounts.map((a) => ({
     email: a.email,
     label: a.label,
@@ -404,7 +407,7 @@ const rotator = {
     return true;
   },
   setModelsEnabled: async (keys: string[], enabled: boolean) => {
-    if (!keys.every((key) => modelCatalog.parseModelKey(key))) return false;
+    if (keys.length === 0 || !keys.every((key) => modelCatalog.parseModelKey(key))) return false;
     applyModelPatch(modelCatalog.setModelsTurnedOff(modelConfig(), keys, !enabled));
     return true;
   },

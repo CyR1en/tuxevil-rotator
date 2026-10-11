@@ -114,6 +114,7 @@ import {
 import {
   isModelServed,
   isProviderTurnedOff,
+  isRequestOff,
   modelOffMessage,
   resolveModelRoute,
   type ModelCatalogSource,
@@ -135,7 +136,7 @@ function isAutoModel(model: string): boolean {
 
 type CompatRoute =
   | { off: true }
-  | { off: false; providerId: string; pinned: boolean };
+  | { off: false; providerId: string; pinned: boolean; modelId?: string };
 
 /**
  * Provider for a request that names a model. Ids a provider lists follow the
@@ -145,11 +146,25 @@ type CompatRoute =
 function compatRoute(rotator: AccountRotator, model: string): CompatRoute {
   const route = resolveModelRoute(rotator, model);
   if (route.kind === "off") return { off: true };
-  if (route.kind === "provider") return { off: false, providerId: route.providerId, pinned: true };
+  if (route.kind === "provider") {
+    // Ids match case-insensitively; send the provider's own casing upstream.
+    const sameId = route.modelId.toLowerCase() === model.toLowerCase();
+    return { off: false, providerId: route.providerId, pinned: true, ...(sameId ? { modelId: route.modelId } : {}) };
+  }
   if (isCodexModelForRotator(rotator, model)) return { off: false, providerId: "openai-codex", pinned: false };
   if (isOpenCodeZenModel(model)) return { off: false, providerId: OPENCODE_ZEN_PROVIDER_ID, pinned: false };
   if (rotator?.getOllamaModels?.().includes(model)) return { off: false, providerId: "ollama", pinned: false };
   return { off: false, providerId: "google-antigravity", pinned: false };
+}
+
+/**
+ * Wire format of an upstream response, from the provider that actually served
+ * it. Zen output is normalized to Chat Completions by its forwarder.
+ */
+function upstreamFormat(context: RotationAttemptContext): "google" | "ollama" | "opencode-zen" {
+  if (context.providerId === OPENCODE_ZEN_PROVIDER_ID) return "opencode-zen";
+  if (context.providerId === "ollama") return "ollama";
+  return "google";
 }
 
 function openAIModelOff(res: ServerResponse, model: string): void {
@@ -2283,11 +2298,7 @@ async function completeResponsesViaRotator(
         context,
         rotator,
         options?.compressionStats,
-        body.providerId === OPENCODE_ZEN_PROVIDER_ID || isOpenCodeZenResponsesModel(body.model)
-          ? "opencode-zen"
-          : body.providerId === "ollama" || (rotator?.getOllamaModels?.() ?? []).includes(body.model)
-            ? "ollama"
-            : "google",
+        upstreamFormat(context),
       );
       if (completion.inputTokens > 0 || completion.outputTokens > 0) {
         rotator.recordTokenUsage(
@@ -2359,8 +2370,6 @@ async function completeViaRotator(
   isDeduplicated?: boolean;
   compressionStats?: CompressionStats | null;
 }> {
-  const ollamaModels = rotator?.getOllamaModels?.() ?? [];
-  const isOllamaUpstream = (model: string): boolean => body.providerId === "ollama" || ollamaModels.includes(model);
   const cfg = typeof rotator?.getConfig === "function" ? rotator.getConfig() : undefined;
   const enabled = cfg?.idempotencyEnabled === true;
   const windowMs = cfg?.idempotencyWindowMs ?? 2000;
@@ -2380,9 +2389,10 @@ async function completeViaRotator(
       async (response, context) => {
         if (streamMode === "none") {
           const raw = await response.text();
-          const completion = body.providerId === OPENCODE_ZEN_PROVIDER_ID || isOpenCodeZenModel(body.model)
+          const format = upstreamFormat(context);
+          const completion = format === "opencode-zen"
             ? parseOpenAiJson(raw)
-            : isOllamaUpstream(body.model)
+            : format === "ollama"
               ? parseOllamaNdjson(raw)
               : parseAntigravitySse(raw);
           if (completion.inputTokens > 0 || completion.outputTokens > 0) {
@@ -2414,11 +2424,7 @@ async function completeViaRotator(
             context,
             rotator,
             options?.compressionStats,
-            body.providerId === OPENCODE_ZEN_PROVIDER_ID || isOpenCodeZenModel(body.model)
-              ? "opencode-zen"
-              : isOllamaUpstream(body.model)
-                ? "ollama"
-                : "google",
+            upstreamFormat(context),
           );
           if (completion.inputTokens > 0 || completion.outputTokens > 0) {
             rotator.recordTokenUsage(
@@ -2518,7 +2524,8 @@ function getOpenAIAntigravityModels(
   served: (id: string) => boolean = () => true,
 ): CompatModelEntry[] {
   // Effort aliases stand in for their targets, so filter before swapping them.
-  const result = getEffectiveAntigravityModels().filter((model) => served(model.id));
+  const all = getEffectiveAntigravityModels();
+  const result = all.filter((model) => served(model.id));
   const rules = getEffortRouting();
   if (!rules || Object.keys(rules).length === 0) {
     return result;
@@ -2544,9 +2551,13 @@ function getOpenAIAntigravityModels(
       (m) => m.id.toLowerCase() === defaultTargetId.toLowerCase(),
     );
     if (!representative) {
-      compatLogger.warn(
-        `Effort routing alias "${alias}" default target "${defaultTargetId}" absent from catalog; skipping catalog swap`,
-      );
+      // A default target turned off on the Models page hides the alias; only
+      // a target missing from the catalog is a configuration problem.
+      if (!all.some((m) => m.id.toLowerCase() === defaultTargetId.toLowerCase())) {
+        compatLogger.warn(
+          `Effort routing alias "${alias}" default target "${defaultTargetId}" absent from catalog; skipping catalog swap`,
+        );
+      }
       continue;
     }
     successfulAliases.push({ alias, representative });
@@ -2824,7 +2835,7 @@ export async function handleGeminiGenerateContent(
   }
   if (autoSelection && !authorizeResolvedAutoModel(res, auth, autoSelection.model)) return;
   const selectedModel = autoSelection?.model ?? model;
-  if (!autoSelection && resolveModelRoute(rotator, selectedModel).kind === "off") {
+  if (isRequestOff(rotator, { model: selectedModel, providerId: autoSelection?.providerId })) {
     return writeJson(res, 404, {
       error: { code: 404, message: modelOffMessage(model), status: "NOT_FOUND" },
     });
@@ -2959,13 +2970,13 @@ export async function handleOpenAIChatCompletions(
     });
   }
   if (autoSelection && !authorizeResolvedAutoModel(res, auth, autoSelection.model)) return;
-  const routedRequest = autoSelection
-    ? { ...validation.value, model: autoSelection.model }
-    : validation.value;
   const route: CompatRoute = autoSelection
     ? { off: false, providerId: autoSelection.providerId, pinned: true }
-    : compatRoute(rotator, routedRequest.model);
+    : compatRoute(rotator, requestedModel);
   if (route.off) return openAIModelOff(res, requestedModel);
+  const routedRequest = autoSelection
+    ? { ...validation.value, model: autoSelection.model }
+    : { ...validation.value, model: route.modelId ?? requestedModel };
 
   if (route.providerId === "openai-codex") {
     await serveCodexChat(req, res, rotator, routedRequest, {
@@ -3003,6 +3014,7 @@ export async function handleOpenAIChatCompletions(
       ? openAIToOllamaBody(chatReq)
       : openAIToAntigravityBody(chatReq));
   if (route.pinned) bodyToForward.providerId = route.providerId;
+  if (isRequestOff(rotator, bodyToForward)) return openAIModelOff(res, requestedModel);
   if (autoSelection) {
     bodyToForward.displayModel = requestedModel;
     bodyToForward.providerId = autoSelection.providerId;
@@ -3154,13 +3166,13 @@ export async function handleOpenAIResponsesCreate(
     });
   }
   if (autoSelection && !authorizeResolvedAutoModel(res, auth, autoSelection.model)) return;
-  const routedValidation = autoSelection
-    ? { ...validation.value, model: autoSelection.model }
-    : validation.value;
   const route: CompatRoute = autoSelection
     ? { off: false, providerId: autoSelection.providerId, pinned: true }
-    : compatRoute(rotator, routedValidation.model);
+    : compatRoute(rotator, requestedModel);
   if (route.off) return openAIModelOff(res, requestedModel);
+  const routedValidation = autoSelection
+    ? { ...validation.value, model: autoSelection.model }
+    : { ...validation.value, model: route.modelId ?? requestedModel };
 
   if (route.providerId === "openai-codex") {
     await serveCodexResponses(req, res, rotator, routedValidation, {
@@ -3210,6 +3222,7 @@ export async function handleOpenAIResponsesCreate(
       ? openAIToOllamaBody(chatRequest)
       : openAIToAntigravityBody(chatRequest));
   if (route.pinned) requestBody.providerId = route.providerId;
+  if (isRequestOff(rotator, requestBody)) return openAIModelOff(res, requestedModel);
   if (autoSelection) {
     requestBody.displayModel = requestedModel;
     requestBody.providerId = autoSelection.providerId;
@@ -3467,18 +3480,18 @@ export async function handleAnthropicMessages(
     });
   }
   if (autoSelection && !authorizeResolvedAutoModel(res, auth, autoSelection.model)) return;
-  const routedValidation = autoSelection
-    ? { ...validation.value, model: autoSelection.model }
-    : validation.value;
   const route: CompatRoute = autoSelection
     ? { off: false, providerId: autoSelection.providerId, pinned: true }
-    : compatRoute(rotator, routedValidation.model);
-  if (route.off) {
-    return writeJson(res, 404, {
+    : compatRoute(rotator, requestedModel);
+  const anthropicModelOff = () =>
+    writeJson(res, 404, {
       type: "error",
       error: { type: "not_found_error", message: modelOffMessage(requestedModel) },
     });
-  }
+  if (route.off) return anthropicModelOff();
+  const routedValidation = autoSelection
+    ? { ...validation.value, model: autoSelection.model }
+    : { ...validation.value, model: route.modelId ?? requestedModel };
   if (route.providerId === "openai-codex") {
     return writeJson(res, 400, {
       type: "error",
@@ -3513,6 +3526,7 @@ export async function handleAnthropicMessages(
       ? anthropicToOllamaBody(anthropicReq)
       : anthropicToAntigravityBody(anthropicReq));
   if (route.pinned) bodyToForward.providerId = route.providerId;
+  if (isRequestOff(rotator, bodyToForward)) return anthropicModelOff();
   if (autoSelection) {
     bodyToForward.displayModel = requestedModel;
     bodyToForward.providerId = autoSelection.providerId;

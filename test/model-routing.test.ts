@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_PROVIDER_ORDER,
   isModelServed,
+  isRequestOff,
   listCatalogModels,
   parseModelKey,
   resolveModelRoute,
@@ -93,6 +94,43 @@ describe("model routing", () => {
   it("no longer hands an Ollama model ending in -free to OpenCode Zen", () => {
     const s = source({}, { ollama: ["qwen4-free"] });
     assert.equal((resolveModelRoute(s, "qwen4-free") as { providerId: string }).providerId, "ollama");
+  });
+});
+
+describe("request switch checks", () => {
+  it("honors explicit keys for ids no provider lists", () => {
+    const s = source({ disabledModels: ["google-antigravity/gemini-pro-agent"] });
+    assert.deepEqual(resolveModelRoute(s, "gemini-pro-agent"), { kind: "off", providerIds: ["google-antigravity"] });
+  });
+
+  it("checks the catalog id and the upstream alias of a request", () => {
+    const s = source({ disabledModels: ["google-antigravity/gemini-3.1-pro-high", "google-antigravity/gemini-3.8-flash-low"] });
+    // Effort routing resolved to a turned-off target; the upstream name is an alias.
+    assert.equal(isRequestOff(s, { model: "gemini-pro-agent", catalogModel: "gemini-3.1-pro-high" }), true);
+    assert.equal(isRequestOff(s, { model: "gemini-3.1-pro-low", catalogModel: "gemini-3.1-pro-low" }), false);
+    // whisper-1 is sent upstream as gemini-3.8-flash-low.
+    assert.equal(isRequestOff(s, { model: "whisper-1" }), true);
+  });
+
+  it("checks a pinned provider's own copy of a shared model", () => {
+    const s = source({ disabledModels: ["ollama/big-pickle"] }, { ollama: ["big-pickle"] });
+    assert.equal(isRequestOff(s, { model: "big-pickle" }), false);
+    assert.equal(isRequestOff(s, { model: "big-pickle", providerId: "opencode-zen" }), false);
+    assert.equal(isRequestOff(s, { model: "big-pickle", providerId: "ollama" }), true);
+    assert.equal(isRequestOff(source({ disabledProviders: ["ollama"] }), { model: "anything", providerId: "ollama" }), true);
+  });
+
+  it("holds only listed models for review", () => {
+    const s = source({ autoEnableNewModels: false, reviewedModels: [] }, { ollama: ["glm-5.1"] });
+    assert.equal(isRequestOff(s, { model: "glm-5.1", providerId: "ollama" }), true);
+    assert.equal(isRequestOff(s, { model: "some-upstream-name", providerId: "ollama" }), false);
+  });
+
+  it("reports each model's own switch separately from its provider's", () => {
+    const s = source({ disabledProviders: ["ollama"], disabledModels: ["ollama/glm-5.1"] }, { ollama: ["glm-5.1", "kimi-k3"] });
+    const entry = (id: string) => listCatalogModels(s).find((model) => model.id === id)!;
+    assert.deepEqual([entry("glm-5.1").offReason, entry("glm-5.1").modelSwitch], ["provider", "off"]);
+    assert.deepEqual([entry("kimi-k3").offReason, entry("kimi-k3").modelSwitch], ["provider", "on"]);
   });
 });
 

@@ -629,8 +629,7 @@ function ModelRows({
               <Switch
                 label=""
                 ariaLabel={`Serve ${row.id} from ${names[entry.providerId] ?? entry.providerId}`}
-                checked={isServed(entry)}
-                disabled={entry.offReason === "provider"}
+                checked={entry.modelSwitch === "on"}
                 onChange={(on) =>
                   change(() => api.setModelsEnabled([offeringKey(entry)], on), {
                     success: `${names[entry.providerId] ?? entry.providerId} ${on ? "serves" : "no longer serves"} ${entry.id}`,
@@ -810,7 +809,7 @@ function ProviderDetail({
             </div>
             <p class="section-note">
               This switch only affects {provider.name}. To take a whole account out of service, disable it on the Accounts page.
-              {summary.accounts.some((account) => !canServeProvider(account, provider.id) && !isTurnedOffForAccount(account, provider.id)) &&
+              {summary.accounts.some((account) => !canServeProvider(account, provider.id, now.value) && !isTurnedOffForAccount(account, provider.id)) &&
                 " Accounts that are cooling down or disabled come back on their own or from the Accounts page."}
             </p>
           </>
@@ -834,15 +833,15 @@ function ProviderDetail({
                   <tr key={entry.id} class={isServed(entry) ? undefined : "is-inactive"}>
                     <th scope="row">
                       <span class="model-id">{entry.id}</span>
-                      {entry.offReason === "review" && <span class="tag tag-info">Waiting for review</span>}
-                      {entry.offReason === "model" && <span class="tag">Off</span>}
+                      {entry.modelSwitch === "review" && <span class="tag tag-info">Waiting for review</span>}
+                      {entry.modelSwitch === "off" && <span class="tag">Off</span>}
                     </th>
                     <td class="muted num">{formatContextWindow(entry.contextWindow)}</td>
                     <td class="cell-switch">
                       <Switch
                         label=""
                         ariaLabel={`Serve ${entry.id} from ${provider.name}`}
-                        checked={entry.offReason !== "model" && entry.offReason !== "review"}
+                        checked={entry.modelSwitch === "on"}
                         onChange={(on) =>
                           change(() => api.setModelsEnabled([offeringKey(entry)], on), {
                             success: `${entry.id} turned ${on ? "on" : "off"}`,

@@ -289,6 +289,7 @@ export function buildModelCatalogResponse(rotator: AccountRotator): ModelCatalog
       quotaPool: model.quotaPool,
       source: model.source,
       offReason: model.offReason,
+      modelSwitch: model.modelSwitch,
       routed: routedTo.get(model.id.toLowerCase()) === model.providerId,
     })),
     autoEnableNewModels: config.autoEnableNewModels ?? true,
@@ -314,6 +315,17 @@ async function readJsonObject(req: IncomingMessage): Promise<Record<string, unkn
 
 const isStringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+
+/** The method a known /api/catalog path takes, for 405 answers. */
+function catalogMethodFor(rest: string[]): string | null {
+  const toggle = rest.at(-1) === "on" || rest.at(-1) === "off";
+  if (rest.length === 0) return "GET";
+  if (rest.length === 1 && rest[0] === "refresh") return "POST";
+  if (rest.length === 1 && rest[0] === "provider-order") return "PUT";
+  if (toggle && ((rest[0] === "providers" && rest.length === 3) || (rest[0] === "models" && rest.length === 2) ||
+    (rest[0] === "new-models" && rest.length === 2) || (rest[0] === "accounts" && rest.length === 4))) return "POST";
+  return null;
+}
 
 /**
  * /api/catalog routes. Every change answers with the updated catalog.
@@ -387,6 +399,11 @@ export async function serveCatalogApi(
       return done();
     }
 
+    const allowed = catalogMethodFor(rest);
+    if (allowed) {
+      res.setHeader("Allow", allowed);
+      return fail(405, `Use ${allowed} for this path`);
+    }
     return fail(404, "Not found");
   } catch (err) {
     dashboardLogger.error(`Catalog request failed: ${err}`);

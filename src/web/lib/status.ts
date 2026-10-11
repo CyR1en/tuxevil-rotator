@@ -57,6 +57,12 @@ export const ACCOUNT_STATUS: Record<AccountState, StatusMeta> = {
     description:
       "Flagged by the provider or quarantined by an operator. Excluded from routing until restored.",
   },
+  off: {
+    label: "Off",
+    tone: "muted",
+    description:
+      "Every provider on this account is turned off on the Models page. It stays signed in and gets no traffic.",
+  },
 };
 
 export function accountStatus(state: AccountState): StatusMeta {
@@ -84,7 +90,7 @@ export function needsAttention(account: {
 }
 
 export function isOutOfService(account: { status: AccountState }): boolean {
-  return account.status === "disabled" || account.status === "flagged";
+  return account.status === "disabled" || account.status === "flagged" || account.status === "off";
 }
 
 export const ROUTING_STATE: Record<RoutingHealthState, StatusMeta> = {

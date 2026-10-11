@@ -21,8 +21,9 @@ import type { AccountRuntime } from "./types.js";
 import type { AccountRotator } from "./rotator.js";
 import { DEFAULT_PROVIDER, getProviderAdapter, getProviderForAccount, findProviderForModel, isKnownProvider } from "./providers/registry.js";
 import {
+  isProviderModelOff,
+  isRequestOff,
   modelOffMessage,
-  resolveModelRoute,
   routedProviderId,
   type ModelCatalogSource,
 } from "./model-catalog.js";
@@ -262,6 +263,8 @@ export interface RequestBody {
   userAgent?: string;
   requestId?: string;
   displayModel?: string;
+  /** Catalog id after effort routing, before upstream aliasing (Antigravity). */
+  catalogModel?: string;
   providerId?: string;
   selectionMode?: "typesafe" | "deterministic" | "shadow" | "disabled";
   selectionConfidence?: number;
@@ -1054,7 +1057,22 @@ export async function benchmarkAccount(
     };
   }
 
-  const benchmarkSpec = getProviderForAccount(account.config).getBenchmark(account);
+  const benchmarkProvider = getProviderForAccount(account.config);
+  const benchmarkSpec = benchmarkProvider.getBenchmark(account);
+  if (
+    rotator.isProviderOffForAccount?.(account, benchmarkProvider.id) ||
+    isProviderModelOff(rotator, benchmarkProvider.id, benchmarkSpec.body.model)
+  ) {
+    return {
+      account: label,
+      status: "skipped",
+      latencyMs: null,
+      ttfbMs: null,
+      outputTokens: null,
+      tokensPerSecond: null,
+      error: `${benchmarkProvider.displayName} is turned off on the Models page`,
+    };
+  }
   rotator.startRequest(account, benchmarkSpec.body.model);
   const timeoutController = new AbortController();
   const timeout = setTimeout(
@@ -1257,8 +1275,7 @@ export async function withRotation<T>(
     };
   };
 
-  // A pinned provider was chosen by the caller, which checked the switches.
-  if (!body.providerId && resolveModelRoute(rotator, model).kind === "off") {
+  if (isRequestOff(rotator, { model, catalogModel: body.catalogModel, providerId: body.providerId })) {
     return { ok: false, status: 404, errorText: modelOffMessage(body.displayModel || model) };
   }
 
@@ -1627,7 +1644,8 @@ async function handleProxyRequest(
     sendAuthErrorResponse(res, auth);
     return;
   }
-  if (resolveModelRoute(rotator, body.model).kind === "off") {
+  // Native bodies may name a provider; the switches apply to it too.
+  if (isRequestOff(rotator, { model: body.model, providerId: body.providerId })) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: modelOffMessage(body.model), model: body.model }));
     return;
