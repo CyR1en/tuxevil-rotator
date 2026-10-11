@@ -267,6 +267,8 @@ graph LR
     I -.Usage API<br/>every 5 min.-> B
 ```
 
+Ollama Cloud quotas come from `GET /api/balance`: the dashboard shows included credit balances, purchased credits, and provider-reported renewal dates. `GET /api/usage` now reports historical consumption rather than remaining quota. Unrecognized quota responses retain the last known values.
+
 Each model routes to its own best available account independently. The same email can hold both a Google OAuth credential and an Ollama Cloud API key (parent-account model) — the rotator picks the right credential at request time based on the destination model.
 
 How model routing works:

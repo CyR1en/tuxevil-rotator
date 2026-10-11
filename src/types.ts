@@ -341,9 +341,10 @@ export interface ModelQuota {
   percentRemaining: number;
   /** Raw usage fraction (0..1) when the provider reports one (Ollama). */
   usageRaw?: number;
+  /** Included monthly credits and optional prepaid credits reported by Ollama. */
+  credits?: { balanceUsd: number; allowanceUsd: number; purchasedUsd: number };
   resetTime: string | null;
-  // Timer classification based on resetTime duration. Ollama's current
-  // account-wide pool is monthly and has no provider-supplied reset time.
+  // Timer classification based on the provider window.
   timerType: "fresh" | "5h" | "7d" | "monthly";
 }
 
@@ -1085,6 +1086,7 @@ export const QUOTA_API_URL =
 // ── Ollama Cloud endpoints ──────────────────────────────────────────
 export const OLLAMA_API_BASE = "https://ollama.com/api";
 export const OLLAMA_OPENAI_BASE = "https://ollama.com/v1";
+export const OLLAMA_BALANCE_URL = "https://ollama.com/api/balance";
 export const OLLAMA_USAGE_URL = "https://ollama.com/api/usage";
 export const OLLAMA_TAGS_URL = "https://ollama.com/api/tags";
 // Mutable so tests can redirect to a local stub (same pattern as ANTIGRAVITY_ENDPOINTS).

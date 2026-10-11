@@ -1131,6 +1131,12 @@ export class AccountRotator {
         : quotaKey.startsWith(`${OPENCODE_ZEN_PROVIDER_ID}:`)
           ? account.quota.find((candidate) => candidate.providerId === OPENCODE_ZEN_PROVIDER_ID)
           : undefined);
+    if (!q && quotaKey === "monthly") {
+      // Legacy subscriptions still report explicit session/weekly windows on
+      // /api/balance; both windows constrain the same Ollama account.
+      const windows = account.quota.filter((quota) => quota.modelKey === "session" || quota.modelKey === "weekly");
+      if (windows.length > 0) return Math.min(...windows.map((quota) => quota.percentRemaining));
+    }
     if (!q) return -1;
     // Legacy Ollama state used a session pool gated by a weekly pool. Keep
     // that compatibility rule only for old in-memory state; current Ollama
@@ -1138,6 +1144,12 @@ export class AccountRotator {
     if (quotaKey === "session") {
       const weekly = account.quota.find((w) => w.modelKey === "weekly");
       if (weekly && weekly.percentRemaining === 0) return 0;
+    }
+    // Included monthly credits can be exhausted while prepaid credits still work.
+    // Keep the actual included percentage in status; use a positive eligibility
+    // floor for routing while the provider reports spendable purchased credit.
+    if (q.modelKey === "monthly" && (q.credits?.purchasedUsd ?? 0) > 0) {
+      return Math.max(1, q.percentRemaining);
     }
     return q.percentRemaining;
   }

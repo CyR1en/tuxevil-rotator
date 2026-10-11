@@ -2,7 +2,8 @@
 // tuxevil-rotator provider layer.
 // Persistent store of raw quota-poll observations.
 //
-// Every `GET /api/usage` poll returns each pool's usage as a fraction
+// `GET /api/balance` supplies remaining credits or window percentages.
+// Legacy `GET /api/usage` responses report each pool's usage as a fraction
 // (0..1) with 3-decimal precision, plus per-model request counts inside
 // that window. The rotator rounds these to whole percents for routing;
 // this store keeps the raw values so operators can correlate tokens
@@ -19,6 +20,7 @@
 
 import { rotatorEnv } from "../../env.js";
 import type { OllamaUsageResponse } from "./quota.js";
+import type { ModelQuota } from "../../types.js";
 import { OLLAMA_QUOTA_POOL_KEY } from "../credential-helpers.js";
 
 const RETENTION_DEFAULT_DAYS = 14;
@@ -164,5 +166,24 @@ export async function pruneQuotaPolls(days: number = RETENTION_DEFAULT_DAYS): Pr
   } catch (err) {
     console.error(`Failed to prune quota polls: ${err}`);
     return 0;
+  }
+}
+
+/** Normalize balance observations to the same included-usage calibration series. */
+export async function recordParsedQuotaPolls(
+  accountEmail: string,
+  polledAt: string,
+  quotas: ModelQuota[],
+): Promise<void> {
+  for (const quota of quotas) {
+    if (quota.modelKey !== "monthly" && quota.modelKey !== "session" && quota.modelKey !== "weekly") continue;
+    if (typeof quota.usageRaw !== "number" || !Number.isFinite(quota.usageRaw)) continue;
+    await recordQuotaPoll({
+      accountEmail,
+      polledAt,
+      pool: quota.modelKey,
+      usageRaw: quota.usageRaw,
+      percentRemaining: quota.percentRemaining,
+    });
   }
 }

@@ -517,3 +517,32 @@ describe("overview providers", () => {
     assert.equal(groups[0].pools.length, 2);
   });
 });
+
+describe("Ollama credit pools", () => {
+  it("weights real balances by their allowances and shows the renewal date without a request-based forecast", () => {
+    const [pool] = buildPools(overview({ accounts: [
+      account("free@x.dev", { provider: "ollama", tier: "ultra", quota: [quota("monthly", 40, {
+        providerId: "ollama", timerType: "monthly",
+        credits: { balanceUsd: 1, allowanceUsd: 2.5, purchasedUsd: 0 },
+      })] }),
+      account("paid@x.dev", { provider: "ollama", tier: "free", quota: [quota("monthly", 50, {
+        providerId: "ollama", timerType: "monthly",
+        credits: { balanceUsd: 30, allowanceUsd: 60, purchasedUsd: 5 },
+      })] }),
+    ], recentRequestsByModel: { "gemma4:31b": 10 } }), NOW);
+    assert.deepEqual(pool.credits, { balanceUsd: 31, allowanceUsd: 62.5, purchasedUsd: 5 });
+    assert.equal(pool.capacity, 50, "Ollama's allowance is independent of the parent account's Google tier");
+    assert.equal(pool.nextResetAt, NOW + 2 * H);
+    assert.equal(pool.hoursLeft, null, "request counts do not predict dollar consumption");
+  });
+
+  it("does not mark a pool blocked when purchased credits remain", () => {
+    const [pool] = buildPools(overview({ accounts: [account("credits@x.dev", { provider: "ollama", quota: [quota("monthly", 0, {
+      providerId: "ollama", timerType: "monthly",
+      credits: { balanceUsd: 0, allowanceUsd: 2.5, purchasedUsd: 5 },
+    })] })] }), NOW);
+    assert.equal(pool.withQuota, 1);
+    assert.equal(pool.state, "ok");
+    assert.equal(pool.capacity, 0, "included usage stays separate from purchased credit");
+  });
+});

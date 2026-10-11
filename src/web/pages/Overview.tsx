@@ -6,7 +6,7 @@ import { useMemo, useState } from "preact/hooks";
 import type { DashboardOverview } from "../../dashboard-types.js";
 import { buildAttention, SEVERITY_ICON, SEVERITY_TONE, type AttentionAction, type AttentionItem } from "../lib/attention.js";
 import { buildProviderGroups, type ProviderGroup, type ModelPool } from "../lib/pools.js";
-import { formatClock, formatCompact, formatCount, formatDuration, formatMs, pluralize } from "../lib/format.js";
+import { formatClock, formatCompact, formatCount, formatDuration, formatMs, formatUsd, pluralize } from "../lib/format.js";
 import {
   canServe,
   isCooling,
@@ -322,6 +322,8 @@ const POOL_STATE: Record<ModelPool["state"], { label: string; tone: Tone } | nul
 };
 
 function estimateText(pool: ModelPool): { text: string; tone: Tone | null; title: string } {
+  if (pool.credits)
+    return { text: "—", tone: null, title: "Credit consumption depends on the model and tokens used; request counts alone cannot predict exhaustion." };
   if (pool.burnPerHour <= 0 || pool.hoursLeft === null)
     return { text: "Idle", tone: null, title: "No requests for this pool in the last hour" };
   const hours = pool.hoursLeft;
@@ -338,7 +340,7 @@ function ProvidersPanel({ providers }: { providers: ProviderGroup[] }): JSX.Elem
   return (
     <Panel
       title="Providers"
-      subtitle="Connected providers and their quota pools across accounts in service, weighted by tier."
+      subtitle="Connected providers and their quota pools across accounts in service, weighted by allowance or tier."
       flush
     >
       {providers.length === 0 ? (
@@ -404,9 +406,15 @@ function PoolRow({ pool, expanded, onToggle }: { pool: ModelPool; expanded: bool
         </th>
         <td data-label="Remaining">
           <div class="pool-capacity">
-            <Meter value={pool.capacity} label={`${pool.name} pooled quota remaining`} />
+            <Meter value={pool.capacity} label={`${pool.name} pooled ${pool.credits ? "included credits" : "quota"} remaining`} />
             <span class="num">{pool.capacity}%</span>
           </div>
+          {pool.credits && (
+            <div class="cell-sub num">
+              {formatUsd(pool.credits.balanceUsd)} / {formatUsd(pool.credits.allowanceUsd)} included
+              {pool.credits.purchasedUsd > 0 && <> · {formatUsd(pool.credits.purchasedUsd)} purchased</>}
+            </div>
+          )}
           <div class="cell-sub">
             {pool.withQuota} of {pluralize(pool.members.length, "account")} with quota
           </div>
