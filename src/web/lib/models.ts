@@ -72,7 +72,7 @@ export function buildModelRows(
     };
     row.offerings.push(entry);
     row.on ||= isServed(entry);
-    row.waiting ||= entry.offReason === "review";
+    row.waiting ||= entry.modelSwitch === "review";
     row.shared = row.offerings.length > 1;
     rows.set(key, row);
   }
@@ -152,13 +152,34 @@ export function isTurnedOffForAccount(account: DashboardAccount, providerId: str
 }
 
 /** Account can take this provider's traffic now. */
-export function canServeProvider(account: DashboardAccount, providerId: string, now: number): boolean {
-  return (
-    canServe(account) &&
-    !account.invalidProviders?.[providerId] &&
-    (account.providerCooldowns?.[providerId] ?? 0) <= now &&
-    !isTurnedOffForAccount(account, providerId)
-  );
+export function canServeProvider(
+  account: DashboardAccount,
+  providerId: string,
+  now: number,
+  routing?: {
+    quotaPools: readonly string[];
+    diagnostics: DashboardOverview["routingDiagnostics"];
+  },
+): boolean {
+  if (
+    !canServe(account) ||
+    account.invalidProviders?.[providerId] ||
+    (account.providerCooldowns?.[providerId] ?? 0) > now ||
+    isTurnedOffForAccount(account, providerId)
+  ) return false;
+
+  const quotas = providerQuotaRows(account, providerId);
+  const pools = new Set(routing?.quotaPools.length ? routing.quotaPools : quotas.map((quota) => quota.modelKey));
+  if (pools.size === 0) return true;
+  return [...pools].some((key) => {
+    const diagnostics = routing?.diagnostics[key]?.accounts.filter((entry) => entry.email === account.email) ?? [];
+    // Email-only diagnostics cannot distinguish same-email accounts. In that
+    // case, use this account's own quota and cooldown instead of another's.
+    if (diagnostics.length === 1) return diagnostics[0].rejectedReason === null;
+    if ((account.cooldownsByModel[key] ?? 0) > now) return false;
+    // Missing and negative quota mean unknown, which routing permits.
+    return quotas.find((quota) => quota.modelKey === key)?.percentRemaining !== 0;
+  });
 }
 
 export function providerQuotaRows(account: DashboardAccount, providerId: string): ModelQuota[] {
@@ -170,16 +191,13 @@ export function summarizeProviders(
   overview: DashboardOverview,
   now: number,
 ): ProviderSummary[] {
+  const pools = buildPools(overview, now);
   return catalog.providers.map((provider, rank) => {
     const accounts = overview.accounts.filter((account) => hasProvider(account, provider.id));
     const rejected = accounts.filter((account) => Boolean(account.invalidProviders?.[provider.id]));
-    const servable = accounts.filter((account) => canServeProvider(account, provider.id, now)).length;
-    // Quota from the accounts this provider may use: switched-off ones add no capacity.
-    const pools = buildPools(
-      { ...overview, accounts: overview.accounts.filter((account) => !isTurnedOffForAccount(account, provider.id)) },
-      now,
-    );
     const models = catalog.models.filter((entry) => entry.providerId === provider.id);
+    const routing = { quotaPools: models.map((entry) => entry.quotaPool), diagnostics: overview.routingDiagnostics };
+    const servable = accounts.filter((account) => canServeProvider(account, provider.id, now, routing)).length;
     const state: ProviderState = !provider.enabled
       ? "off"
       : accounts.length === 0
