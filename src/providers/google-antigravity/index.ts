@@ -7,8 +7,10 @@
 
 import type {
   ProviderAdapter,
+  ProviderModel,
   QuotaFetchContext,
 } from "../adapter.js";
+import { getEffectiveAntigravityModels, isBuiltInAntigravityModel } from "./catalog.js";
 import { fetchProviderQuota } from "./quota.js";
 import {
   forwardRequest,
@@ -166,6 +168,15 @@ export const googleAntigravityAdapter: ProviderAdapter = {
       KICKSTART_MODEL_FOR_QUOTA_POOL[quotaModelKey] ??
       KICKSTART_MODEL_FOR_QUOTA_POOL[resolveQuotaModelKey(quotaModelKey) ?? ""]
     );
+  },
+
+  listModels(): ProviderModel[] {
+    return getEffectiveAntigravityModels().map((model) => ({
+      id: model.id,
+      contextWindow: model.ctx,
+      quotaPool: model.quotaPool,
+      source: isBuiltInAntigravityModel(model.id) ? "catalog" : "discovered",
+    }));
   },
 
   ownsModel(model: string): boolean {

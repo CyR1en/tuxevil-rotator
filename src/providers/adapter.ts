@@ -65,6 +65,22 @@ export interface TierRanking {
   [tier: string]: number;
 }
 
+/** One model a provider can serve, as listed on the dashboard's Models page. */
+export interface ProviderModel {
+  id: string;
+  contextWindow: number | null;
+  /** Quota row the model draws from (`account.quota[].modelKey`). */
+  quotaPool: string;
+  /** Built into the rotator, or found at runtime from the provider. */
+  source: "catalog" | "discovered";
+}
+
+/** Model ids the rotator discovers at runtime for providers without a fixed list. */
+export interface ModelListContext {
+  ollamaModels: readonly string[];
+  codexModels: readonly string[];
+}
+
 export interface ProviderFeatures {
   /** Project/model circuit breakers on repeated 429s (opt-in via config). */
   circuitBreakers: boolean;
@@ -141,6 +157,8 @@ export interface ProviderAdapter {
   clearQuotaCache?(account: AccountRuntime): void;
 
   // --- Catalog / helpers ---
+  /** Every model this provider can serve right now. */
+  listModels(context: ModelListContext): ProviderModel[];
   /** Whether a model belongs to this provider. */
   ownsModel?(
     model: string,

@@ -154,6 +154,17 @@ export interface Config {
   effortRouting?: Record<string, EffortRoutingRule> | null;
   /** Optional semantic model routing through TypeSafe Jev. */
   typesafeRouting?: TypeSafeRoutingConfig;
+  // Dashboard Models page. Provider priority for model ids more than one
+  // provider lists; unlisted providers follow in the default order.
+  providerOrder?: string[];
+  // Providers turned off: their accounts stay signed in but get no traffic.
+  disabledProviders?: string[];
+  // "<provider>/<model>" entries turned off, e.g. "ollama/gpt-oss:20b".
+  disabledModels?: string[];
+  // When false, models a provider adds later stay off until turned on. Default: true.
+  autoEnableNewModels?: boolean;
+  // "<provider>/<model>" entries already decided while autoEnableNewModels is false.
+  reviewedModels?: string[];
 }
 
 export interface TypeSafeRoutingConfig {
@@ -511,6 +522,8 @@ export interface AccountRuntime {
   /** Provider-local auth failures/cooldowns; Google/Ollama remain routable. */
   invalidProviders?: Record<string, string>;
   providerCooldowns?: Record<string, number>;
+  /** Providers the operator turned off for this account only. */
+  disabledProviders?: string[];
   // Rotation tracking (per-model via rotator)
   requestsSinceRotation: number;
   totalRequests: number;
@@ -593,6 +606,8 @@ export interface PersistedState {
   allowFreshWindowStarts?: boolean;
   autoWarmupEnabled?: boolean;
   safety?: PersistedSafetyState;
+  /** Models-page account switches keyed by getAccountIdentity; authoritative when present. */
+  disabledProvidersByAccount?: Record<string, string[]>;
   accounts: Record<
     string,
     {
@@ -606,6 +621,7 @@ export interface PersistedState {
       flagged: boolean;
       flagReason?: string | null;
       allowFreshWindowStartsOverride?: boolean;
+      disabledProviders?: string[];
     }
   >;
 }
@@ -632,6 +648,8 @@ export interface AdminNotification {
 // Dashboard API response
 export interface StatusResponse {
   version: string;
+  /** Stable public Models state; changes invalidate the dashboard catalog. */
+  modelCatalogRevision?: string;
   proxyPort: number;
   requestsPerRotation: number;
   maxConcurrentRequestsPerAccount: number;
@@ -694,6 +712,8 @@ export interface StatusResponse {
 }
 
 export interface AccountStatus {
+  /** Stable account identity for exact Models-page targets; email is a legacy fallback. */
+  id?: string;
   email: string;
   label: string;
   /** Provider id, e.g. "google-antigravity" | "ollama". */
@@ -705,7 +725,9 @@ export interface AccountStatus {
     | "exhausted"
     | "disabled"
     | "flagged"
-    | "error";
+    | "error"
+    // Every provider on the account is turned off on the Models page.
+    | "off";
   // Which models this account is currently active for
   activeForModels: string[];
   requestsSinceRotation: number;
@@ -723,6 +745,8 @@ export interface AccountStatus {
   invalidProviders?: Record<string, string>;
   /** Provider-scoped cooldown deadlines, kept separate from account breakers. */
   providerCooldowns?: Record<string, number>;
+  /** Providers the operator turned off for this account only. */
+  disabledProviders?: string[];
   quota: ModelQuota[];
   inFlightRequests: number;
   inFlightByModel: Record<string, number>;
@@ -749,6 +773,8 @@ export interface HealthScoreBreakdown {
 }
 
 export interface RoutingAccountDiagnostic {
+  /** Stable account identity; older diagnostic producers may omit it. */
+  id?: string;
   email: string;
   label: string;
   status: AccountStatus["status"];

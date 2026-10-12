@@ -12,6 +12,16 @@ import { createMasker } from "../src/web/lib/mask.js";
 import { buildPools, buildProviderGroups, poolKeyForModel } from "../src/web/lib/pools.js";
 import { errorHint, isKickstartable, quotaProvider } from "../src/web/lib/status.js";
 import {
+  buildModelRows,
+  filterModelRows,
+  formatContextWindow,
+  moveProvider,
+  placeProvider,
+  sortModelRows,
+  summarizeProviders,
+} from "../src/web/lib/models.js";
+import type { CatalogModelEntry, ModelCatalogResponse } from "../src/dashboard-types.js";
+import {
   aggregateBars,
   buildHeatmap,
   computeSavings,
@@ -496,6 +506,118 @@ describe("status and formatting helpers", () => {
     assert.equal(modelColor("kimi-k3"), "#047857");
     assert.equal(modelColor("gpt-5.6-terra"), "#eab308");
     assert.notEqual(modelColor("gpt-5.6-sol"), modelColor("claude-opus-4-6-thinking"));
+  });
+});
+
+describe("models page", () => {
+  const entry = (providerId: string, id: string, extra: Partial<CatalogModelEntry> = {}): CatalogModelEntry => ({
+    providerId,
+    id,
+    contextWindow: 128_000,
+    quotaPool: providerId === "ollama" ? "monthly" : "opencode-zen",
+    source: "catalog",
+    offReason: null,
+    modelSwitch: extra.offReason === "model" ? "off" : extra.offReason === "review" ? "review" : "on",
+    routed: true,
+    ...extra,
+  });
+  const catalog = (models: CatalogModelEntry[], disabled: string[] = []): ModelCatalogResponse => ({
+    ok: true,
+    providers: ["opencode-zen", "openai-codex", "ollama", "google-antigravity"].map((id) => ({
+      id,
+      name: id,
+      credentialKind: "api-key",
+      enabled: !disabled.includes(id),
+    })),
+    models,
+    autoEnableNewModels: true,
+  });
+
+  it("builds one row per id across providers", () => {
+    const rows = buildModelRows(
+      catalog([
+        entry("opencode-zen", "big-pickle"),
+        entry("ollama", "big-pickle", { routed: false, offReason: "model" }),
+        entry("ollama", "kimi-k3", { offReason: "review" }),
+      ]),
+      { "Big-Pickle": 3, "big-pickle": 2 },
+    );
+    assert.equal(rows.length, 2);
+    const pickle = rows.find((row) => row.id === "big-pickle")!;
+    assert.equal(pickle.shared, true);
+    assert.equal(pickle.on, true);
+    assert.equal(pickle.requests, 5);
+    const kimi = rows.find((row) => row.id === "kimi-k3")!;
+    assert.equal(kimi.on, false);
+    assert.equal(kimi.waiting, true);
+  });
+
+  it("filters, searches and sorts rows with models that are off last", () => {
+    const rows = buildModelRows(
+      catalog([
+        entry("ollama", "a-quiet"),
+        entry("ollama", "b-busy"),
+        entry("ollama", "c-off", { offReason: "model" }),
+        entry("opencode-zen", "d-zen"),
+      ]),
+      { "b-busy": 9, "c-off": 50 },
+    );
+    assert.deepEqual(sortModelRows(rows, "requests").map((row) => row.id), ["b-busy", "a-quiet", "d-zen", "c-off"]);
+    assert.deepEqual(sortModelRows(rows, "name").map((row) => row.id), ["a-quiet", "b-busy", "d-zen", "c-off"]);
+    assert.deepEqual(filterModelRows(rows, { filter: "off", provider: "", query: "" }).map((row) => row.id), ["c-off"]);
+    assert.deepEqual(filterModelRows(rows, { filter: "all", provider: "opencode-zen", query: "" }).map((row) => row.id), ["d-zen"]);
+    assert.deepEqual(filterModelRows(rows, { filter: "all", provider: "", query: "BUS" }).map((row) => row.id), ["b-busy"]);
+  });
+
+  it("summarizes each provider from its accounts", () => {
+    const data = overview({
+      accounts: [
+        account("a@x.io", { provider: "ollama", quota: [quota("monthly", 60, { providerId: "ollama" })] }),
+        account("b@x.io", { provider: "google-antigravity+ollama", disabledProviders: ["ollama"] }),
+        account("c@x.io", { provider: "openai-codex", invalidProviders: { "openai-codex": "invalid_grant" } }),
+        account("d@x.io", { provider: "opencode-zen", status: "cooldown" }),
+      ],
+    });
+    const summaries = summarizeProviders(catalog([entry("ollama", "glm-5.1")], ["google-antigravity"]), data, NOW);
+    const by = Object.fromEntries(summaries.map((summary) => [summary.provider.id, summary]));
+    assert.equal(by.ollama.state, "healthy");
+    assert.equal(by.ollama.accounts.length, 2);
+    assert.equal(by.ollama.canServe, 1);
+    assert.deepEqual(by.ollama.quotas.map((q) => [q.key, q.percent]), [["monthly", 60]]);
+    assert.equal(by["openai-codex"].state, "needs-sign-in");
+    assert.equal(by["opencode-zen"].state, "unavailable");
+    assert.equal(by["google-antigravity"].state, "off");
+    assert.equal(summarizeProviders(catalog([]), overview(), NOW)[0].state, "not-connected");
+  });
+
+  it("does not count cooling or switched-off accounts as capacity", () => {
+    const data = overview({
+      accounts: [
+        account("a@x.io", { provider: "ollama", quota: [quota("monthly", 60, { providerId: "ollama" })] }),
+        account("b@x.io", { provider: "ollama", disabledProviders: ["ollama"], quota: [quota("monthly", 0, { providerId: "ollama" })] }),
+        account("c@x.io", { provider: "ollama", providerCooldowns: { ollama: NOW + H }, quota: [quota("monthly", 60, { providerId: "ollama" })] }),
+      ],
+    });
+    const ollama = summarizeProviders(catalog([entry("ollama", "glm-5.1")]), data, NOW).find((s) => s.provider.id === "ollama")!;
+    assert.equal(ollama.canServe, 1);
+    assert.deepEqual(ollama.quotas.map((q) => [q.key, q.percent]), [["monthly", 60]]);
+  });
+
+  it("reorders providers", () => {
+    const order = ["a", "b", "c", "d"];
+    assert.deepEqual(moveProvider(order, "c", -1), ["a", "c", "b", "d"]);
+    assert.deepEqual(moveProvider(order, "a", -1), order);
+    assert.deepEqual(placeProvider(order, "d", "a", false), ["d", "a", "b", "c"]);
+    assert.deepEqual(placeProvider(order, "a", "d", true), ["b", "c", "d", "a"]);
+    assert.deepEqual(placeProvider(order, "a", "a", true), order);
+  });
+
+  it("formats context windows the way providers publish them", () => {
+    assert.equal(formatContextWindow(128_000), "128K");
+    assert.equal(formatContextWindow(131_072), "128K");
+    assert.equal(formatContextWindow(1_048_576), "1M");
+    assert.equal(formatContextWindow(1_050_000), "1.05M");
+    assert.equal(formatContextWindow(null), "—");
   });
 });
 

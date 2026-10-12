@@ -1373,6 +1373,10 @@ export function openAIToAntigravityBody(
     project: "compat-placeholder",
     model: mappedModel,
     displayModel: requestedModel,
+    requestedModel,
+    // The catalog id after effort routing, before upstream aliasing, so the
+    // Models page switches can be checked against it.
+    catalogModel: effortTarget,
     userAgent: "antigravity",
     requestType: "agent",
     request,

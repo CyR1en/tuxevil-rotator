@@ -37,6 +37,7 @@ const STATUS_ORDER: Record<AccountState, number> = {
   error: 4,
   disabled: 5,
   flagged: 6,
+  off: 7,
 };
 
 /** Lowest remaining quota across pools: the pool that will stop the account first. */
