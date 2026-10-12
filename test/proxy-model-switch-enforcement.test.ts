@@ -442,12 +442,30 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     });
   }
 
+  for (const requestedModel of [7, null, {}, []]) {
+    it(`rejects malformed native requestedModel (${JSON.stringify(requestedModel)}) before admission or forwarding`, async () => {
+      const { rotator, accounts } = makeRotator();
+      const admission = mock.method(rotator, "getActiveAccount", async () => {
+        throw new Error("invalid request metadata must not reach admission");
+      });
+      const base = await listenProxy(rotator);
+      const response = await post(`${base}/v1internal:generateContent`, { ...requestBody(), requestedModel });
+      const json = await response.json() as { error: string; details: string[] };
+      assert.equal(response.status, 400);
+      assert.equal(json.error, "Invalid request body");
+      assert.match(json.details.join("; "), /requestedModel.*string/);
+      assert.equal(admission.mock.callCount(), 0);
+      assert.equal(captures.length, 0);
+      assertReleased(accounts);
+    });
+  }
+
   it("keeps Google-native envelopes on Google when Ollama lists the same model first", async () => {
     const { rotator, accounts } = makeRotator({ providerOrder: ["ollama", GOOGLE] });
     rotator.setOllamaModels([MODEL]);
     const base = await listenProxy(rotator);
     for (const providerId of [undefined, GOOGLE]) {
-      const body = requestBody({ providerId });
+      const body = requestBody({ providerId, requestedModel: MODEL });
       const response = await post(`${base}/v1internal:generateContent`, body);
       assert.equal(response.status, 200);
       await response.text();
