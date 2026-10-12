@@ -1914,6 +1914,7 @@ export class AccountRotator {
             );
 
       diagnostics.push({
+        id: getAccountIdentity(account),
         email: account.config.email,
         label: account.config.label || account.config.email,
         status,

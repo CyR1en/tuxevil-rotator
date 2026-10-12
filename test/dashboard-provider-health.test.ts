@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { AccountConfig, AccountRuntime, Config, ModelQuota } from "../src/types.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "tuxevil-provider-health-"));
@@ -23,7 +23,7 @@ for (const [key, value] of Object.entries(testEnv)) {
 }
 
 const { AccountRotator } = await import("../src/rotator.js");
-const { initDb, closeDb } = await import("../src/db-store.js");
+const { initDb, closeDb, setCachedState } = await import("../src/db-store.js");
 const { buildModelCatalogResponse } = await import("../src/dashboard.js");
 const { buildOverview } = await import("../src/dashboard-live.js");
 const { dynamicCatalog } = await import("../src/providers/google-antigravity/dynamic-catalog.js");
@@ -89,6 +89,7 @@ describe("provider health from the real catalog and routing snapshot", () => {
     await initDb();
   });
 
+  beforeEach(() => setCachedState({ modelAccounts: {}, accounts: {} }));
   afterEach(() => dynamicCatalog.reset());
 
   after(async () => {
@@ -223,6 +224,78 @@ describe("provider health from the real catalog and routing snapshot", () => {
     const google = summarizeProviders(buildModelCatalogResponse(rotator), overview, now).find((entry) => entry.provider.id === "google-antigravity")!;
     assert.equal(google.canServe, 1);
     assert.equal(google.state, "healthy");
+  });
+
+  for (const duplicateEmail of [true, false]) {
+    it(`honors fresh-window diagnostics for ${duplicateEmail ? "same-email" : "distinct-email"} accounts and keeps their Ollama sibling usable`, async () => {
+      const rotator = makeRotator(["first", "second"].map((project) => ({
+        email: duplicateEmail ? "same@example.com" : `${project}@example.com`,
+        credentials: [
+          { provider: "google-antigravity", projectId: project, refreshToken: `test-google-${project}` },
+          { provider: "ollama", apiKey: `test-ollama-${project}` },
+        ],
+      })));
+      rotator.setOllamaModels(["new-ollama-model"]);
+      const accounts = runtimeAccounts(rotator);
+      for (const account of accounts) {
+        account.quota = [
+          { ...quota("claude", "google-antigravity", 100), timerType: "fresh" },
+          { ...quota("gemini", "google-antigravity", 100), timerType: "fresh" },
+          quota("monthly", "ollama", 80),
+        ];
+      }
+      await rotator.setAllowFreshWindowStarts(false);
+      const now = Date.now();
+      let overview = buildOverview(rotator.getStatus(), now, { database: false });
+      assert.deepEqual(overview.accounts.map((account) => account.status), ["ready", "ready"]);
+      for (const key of ["claude", "gemini"]) {
+        assert.equal(overview.routingDiagnostics[key].availableCandidates, 0);
+        assert.deepEqual(overview.routingDiagnostics[key].accounts.map((entry) => entry.rejectedReason), ["fresh-window-blocked", "fresh-window-blocked"]);
+      }
+      assert.equal(rotator.getAutoRoutingCandidateStatus("gemini-3.8-flash-high", "google-antigravity").available, false);
+      const catalog = buildModelCatalogResponse(rotator);
+      let summaries = summarizeProviders(catalog, overview, now);
+      let google = summaries.find((entry) => entry.provider.id === "google-antigravity")!;
+      assert.equal(google.canServe, 0);
+      assert.equal(google.state, "unavailable");
+      assert.equal(summaries.find((entry) => entry.provider.id === "ollama")!.canServe, 2);
+      assert.notEqual(overview.accounts[0].id, overview.accounts[1].id);
+      assert.deepEqual(overview.routingDiagnostics.gemini.accounts.map((entry) => entry.id), overview.accounts.map((account) => account.id));
+
+      // The second project may override the policy without making the first
+      // project's fresh window eligible, even when their emails are equal.
+      accounts[1].allowFreshWindowStartsOverride = true;
+      overview = buildOverview(rotator.getStatus(), now, { database: false });
+      assert.deepEqual(overview.routingDiagnostics.gemini.accounts.map((entry) => entry.rejectedReason), ["fresh-window-blocked", null]);
+      summaries = summarizeProviders(catalog, overview, now);
+      google = summaries.find((entry) => entry.provider.id === "google-antigravity")!;
+      assert.equal(google.canServe, 1);
+      assert.equal(google.state, "healthy");
+    });
+  }
+
+  it("retains unambiguous email matching for legacy diagnostics without account IDs", async () => {
+    const rotator = makeRotator([mixedAccount]);
+    runtimeAccounts(rotator)[0].quota = [
+      { ...quota("claude", "google-antigravity", 100), timerType: "fresh" },
+      { ...quota("gemini", "google-antigravity", 100), timerType: "fresh" },
+      quota("monthly", "ollama", 80),
+    ];
+    await rotator.setAllowFreshWindowStarts(false);
+    const now = Date.now();
+    const overview = buildOverview(rotator.getStatus(), now, { database: false });
+    // Omit IDs as older dashboard snapshots did. Keep the account ID first
+    // to also cover a modern account paired with a legacy diagnostic.
+    for (const diagnostic of Object.values(overview.routingDiagnostics)) {
+      for (const entry of diagnostic.accounts) delete entry.id;
+    }
+    const catalog = buildModelCatalogResponse(rotator);
+    for (const keepAccountId of [true, false]) {
+      if (!keepAccountId) delete overview.accounts[0].id;
+      const summaries = summarizeProviders(catalog, overview, now);
+      assert.equal(summaries.find((entry) => entry.provider.id === "google-antigravity")!.canServe, 0);
+      assert.equal(summaries.find((entry) => entry.provider.id === "ollama")!.canServe, 1);
+    }
   });
 
   it("excludes switched-off provider quota from pooled capacity and keeps the enabled sibling", () => {
