@@ -809,7 +809,10 @@ function ProviderDetail({
             </div>
             <p class="section-note">
               This switch only affects {provider.name}. To take a whole account out of service, disable it on the Accounts page.
-              {summary.accounts.some((account) => !canServeProvider(account, provider.id, now.value) && !isTurnedOffForAccount(account, provider.id)) &&
+              {summary.accounts.some((account) => !canServeProvider(account, provider.id, now.value, {
+                quotaPools: models.map((entry) => entry.quotaPool),
+                diagnostics: overview.value?.routingDiagnostics ?? {},
+              }) && !isTurnedOffForAccount(account, provider.id)) &&
                 " Accounts that are cooling down or disabled come back on their own or from the Accounts page."}
             </p>
           </>
