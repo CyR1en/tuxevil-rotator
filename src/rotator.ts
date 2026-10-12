@@ -647,6 +647,11 @@ export class AccountRotator {
       this.provider429Events = state.safety?.provider429Events ?? [];
       this.rollDailySafetyIfNeeded(Date.now());
 
+      const emailCounts = new Map<string, number>();
+      for (const account of this.accounts) {
+        const email = account.config.email;
+        emailCounts.set(email, (emailCounts.get(email) ?? 0) + 1);
+      }
       for (const account of this.accounts) {
         const saved = state.accounts[account.config.email];
         if (saved) {
@@ -667,10 +672,14 @@ export class AccountRotator {
           if (account.flagged && saved.flagReason) account.lastError = saved.flagReason;
           account.allowFreshWindowStartsOverride =
             saved.allowFreshWindowStartsOverride ?? false;
-          if (saved.disabledProviders?.length) {
-            account.disabledProviders = [...saved.disabledProviders];
-          }
         }
+        // A legacy email switch cannot identify one of several project/workspace
+        // accounts. New state is authoritative so changed identities do not
+        // inherit switches from an older credential with the same email.
+        const disabledProviders = state.disabledProvidersByAccount
+          ? state.disabledProvidersByAccount[getAccountIdentity(account)]
+          : emailCounts.get(account.config.email) === 1 ? saved?.disabledProviders : undefined;
+        if (disabledProviders?.length) account.disabledProviders = [...disabledProviders];
       }
       this.migratePersistedQuotaStateKeys();
       // Cap explicit generic/non-Google cooldowns to 30 min. An unresolved key
@@ -789,6 +798,7 @@ export class AccountRotator {
       }
     }
 
+    const disabledProvidersByAccount: Record<string, string[]> = {};
     const state: PersistedState = {
       dynamicModelQuotaPools: dynamicCatalog.getDiscoveredQuotaPools(),
       dynamicModelOwnership: dynamicCatalog.getPersistedModelOwnership(
@@ -821,9 +831,11 @@ export class AccountRotator {
         modelBreakers: { ...this.modelBreakers },
         provider429Events: [...this.provider429Events],
       },
+      disabledProvidersByAccount,
       accounts: {},
     };
     for (const account of this.accounts) {
+      disabledProvidersByAccount[getAccountIdentity(account)] = [...(account.disabledProviders ?? [])];
       state.accounts[account.config.email] = {
         totalRequests: account.totalRequests,
         dailyRequestCount: account.dailyRequestCount,
@@ -834,9 +846,6 @@ export class AccountRotator {
         flagged: account.flagged,
         flagReason: account.flagged ? account.lastError : null,
         allowFreshWindowStartsOverride: account.allowFreshWindowStartsOverride,
-        ...(account.disabledProviders?.length
-          ? { disabledProviders: [...account.disabledProviders] }
-          : {}),
       };
     }
     try {
@@ -3496,14 +3505,17 @@ export class AccountRotator {
     }
   }
 
-  /** Turn one provider off for one account; its other providers keep serving. */
+  /** Exact identity target; a legacy email is accepted only if it names one account. */
   async setAccountProviderEnabled(
-    email: string,
+    accountId: string,
     providerId: string,
     enabled: boolean,
   ): Promise<boolean> {
-    const account = this.accounts.find((a) => a.config.email === email);
-    if (!account || !hasCredential(account.config, providerId)) return false;
+    let matches = this.accounts.filter((a) => getAccountIdentity(a) === accountId);
+    if (matches.length === 0) matches = this.accounts.filter((a) => a.config.email === accountId);
+    if (matches.length !== 1) return false;
+    const account = matches[0];
+    if (!hasCredential(account.config, providerId)) return false;
     const current = account.disabledProviders ?? [];
     if (current.includes(providerId) === !enabled) return true;
     const rest = current.filter((id) => id !== providerId);
@@ -3511,7 +3523,7 @@ export class AccountRotator {
     account.disabledProviders = next.length > 0 ? next : undefined;
     await this.saveState();
     this.log(
-      `${email}: operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"} for this account`,
+      `${account.config.email}: operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"} for this account`,
       "warn",
     );
     this.requestWaiterDrain();
@@ -4154,6 +4166,7 @@ export class AccountRotator {
       const tokenBucket = this.getTokenBucketSnapshot(a, now);
 
       return {
+        id: getAccountIdentity(a),
         email: a.config.email,
         provider:
           (a.config.credentials ?? []).map((c) => c.provider).join("+") ||

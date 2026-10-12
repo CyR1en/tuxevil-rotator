@@ -191,10 +191,10 @@ export const api = {
     request<ModelCatalogResponse>("POST", `/api/catalog/models/${on ? "on" : "off"}`, { models }),
   setAutoEnableNewModels: (on: boolean) =>
     request<ModelCatalogResponse>("POST", `/api/catalog/new-models/${on ? "on" : "off"}`),
-  setAccountProviderEnabled: (email: string, providerId: string, on: boolean) =>
+  setAccountProviderEnabled: (accountId: string, providerId: string, on: boolean) =>
     request<ModelCatalogResponse>(
       "POST",
-      `/api/catalog/accounts/${enc(email)}/${enc(providerId)}/${on ? "on" : "off"}`,
+      `/api/catalog/accounts/${enc(accountId)}/${enc(providerId)}/${on ? "on" : "off"}`,
     ),
 
   spendLogs: (q: SpendQuery) =>

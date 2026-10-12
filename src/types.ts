@@ -605,6 +605,8 @@ export interface PersistedState {
   allowFreshWindowStarts?: boolean;
   autoWarmupEnabled?: boolean;
   safety?: PersistedSafetyState;
+  /** Models-page account switches keyed by getAccountIdentity; authoritative when present. */
+  disabledProvidersByAccount?: Record<string, string[]>;
   accounts: Record<
     string,
     {
@@ -707,6 +709,8 @@ export interface StatusResponse {
 }
 
 export interface AccountStatus {
+  /** Stable account identity for exact Models-page targets; email is a legacy fallback. */
+  id?: string;
   email: string;
   label: string;
   /** Provider id, e.g. "google-antigravity" | "ollama". */

@@ -312,20 +312,21 @@ export class DashboardLiveHub {
     const patch: AccountsPatch = { upsert: [], remove: [] };
     const seen = new Set<string>();
     for (const account of next.accounts) {
-      seen.add(account.email);
+      const id = account.id ?? account.email;
+      seen.add(id);
       const json = JSON.stringify(account);
-      if (this.accountJson.get(account.email) !== json) {
-        this.accountJson.set(account.email, json);
+      if (this.accountJson.get(id) !== json) {
+        this.accountJson.set(id, json);
         patch.upsert.push(account);
       }
     }
-    for (const email of this.accountJson.keys()) {
-      if (!seen.has(email)) {
-        this.accountJson.delete(email);
-        patch.remove.push(email);
+    for (const id of this.accountJson.keys()) {
+      if (!seen.has(id)) {
+        this.accountJson.delete(id);
+        patch.remove.push(id);
       }
     }
-    const order = next.accounts.map((a) => a.email);
+    const order = next.accounts.map((a) => a.id ?? a.email);
     if (order.join("\n") !== this.accountOrder.join("\n")) {
       this.accountOrder = order;
       patch.order = order;

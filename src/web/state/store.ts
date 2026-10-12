@@ -91,13 +91,13 @@ export function applySnapshot(snapshot: DashboardSnapshot): void {
 function applyAccounts(patch: AccountsPatch): void {
   const current = overview.value;
   if (!current) return;
-  const byEmail = new Map(current.accounts.map((a) => [a.email, a]));
-  for (const email of patch.remove) byEmail.delete(email);
-  for (const account of patch.upsert) byEmail.set(account.email, account);
-  const order = patch.order ?? current.accounts.map((a) => a.email).filter((e) => byEmail.has(e));
+  const byId = new Map(current.accounts.map((a) => [a.id ?? a.email, a]));
+  for (const id of patch.remove) byId.delete(id);
+  for (const account of patch.upsert) byId.set(account.id ?? account.email, account);
+  const order = patch.order ?? current.accounts.map((a) => a.id ?? a.email).filter((id) => byId.has(id));
   const seen = new Set(order);
-  const next = order.map((email) => byEmail.get(email)).filter((a): a is DashboardAccount => Boolean(a));
-  for (const [email, account] of byEmail) if (!seen.has(email)) next.push(account);
+  const next = order.map((id) => byId.get(id)).filter((a): a is DashboardAccount => Boolean(a));
+  for (const [id, account] of byId) if (!seen.has(id)) next.push(account);
   overview.value = { ...current, accounts: next };
 }
 
