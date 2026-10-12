@@ -2521,11 +2521,11 @@ export interface OpenAIModelCatalogEntry {
 }
 
 function getOpenAIAntigravityModels(
-  served: (id: string) => boolean = () => true,
+  source: ModelCatalogSource,
 ): CompatModelEntry[] {
   // Effort aliases stand in for their targets, so filter before swapping them.
   const all = getEffectiveAntigravityModels();
-  const result = all.filter((model) => served(model.id));
+  const result = all.filter((model) => isModelServed(source, "google-antigravity", model.id));
   const rules = getEffortRouting();
   if (!rules || Object.keys(rules).length === 0) {
     return result;
@@ -2537,6 +2537,7 @@ function getOpenAIAntigravityModels(
   }> = [];
   const hiddenTargetIds = new Set<string>();
   const successfulAliasNames = new Set<string>();
+  const unavailableAliasNames = new Set<string>();
 
   for (const [alias, rule] of Object.entries(rules)) {
     const defaultEffortKey = rule.defaultEffort;
@@ -2545,6 +2546,20 @@ function getOpenAIAntigravityModels(
       compatLogger.warn(
         `Effort routing alias "${alias}" default effort "${defaultEffortKey}" target not found; skipping catalog swap`,
       );
+      continue;
+    }
+    const route = resolveModelRoute(source, alias);
+    // A live provider's exact id wins over an effort alias. Leave its catalog
+    // entry and the unused Antigravity targets to the normal route deduplication.
+    if (route.kind === "provider" && route.providerId !== "google-antigravity") continue;
+    // Review applies to listed ids; an operator's unlisted alias may still
+    // use a reviewed target. Check it like a request, including upstream aliases.
+    if (route.kind === "off" || isRequestOff(source, {
+      catalogModel: alias,
+      model: defaultTargetId,
+      providerId: "google-antigravity",
+    })) {
+      unavailableAliasNames.add(alias.toLowerCase());
       continue;
     }
     const representative = result.find(
@@ -2567,12 +2582,9 @@ function getOpenAIAntigravityModels(
     }
   }
 
-  if (successfulAliases.length === 0) {
-    return result;
-  }
-
   const filtered = result.filter(
     (m) =>
+      !unavailableAliasNames.has(m.id.toLowerCase()) &&
       !hiddenTargetIds.has(m.id.toLowerCase()) &&
       !successfulAliasNames.has(m.id.toLowerCase()),
   );
@@ -2603,7 +2615,7 @@ export function buildOpenAIModelCatalog(
   const served = (providerId: string) => (id: string) => isModelServed(source, providerId, id);
   const antigravityModels = isProviderTurnedOff(rotator?.getConfig?.(), "google-antigravity")
     ? []
-    : getOpenAIAntigravityModels(served("google-antigravity"));
+    : getOpenAIAntigravityModels(source);
   const catalog: OpenAIModelCatalogEntry[] = antigravityModels.map(
     ({
       id,
