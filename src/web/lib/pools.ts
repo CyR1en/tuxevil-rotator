@@ -8,7 +8,7 @@ import type {
   DashboardRoutingAccount,
   DashboardRoutingDiagnostics,
 } from "../../dashboard-types.js";
-import { isOutOfService, providerRank, quotaProvider } from "./status.js";
+import { isOutOfService, providerRank, providerIds, quotaProvider } from "./status.js";
 
 /** Rough requests per full quota window, used only to weight pooled capacity. */
 const TIER_CAPACITY: Record<string, number> = {
@@ -41,8 +41,10 @@ export interface ModelPool {
   members: PoolMember[];
   /** Members with quota left. */
   withQuota: number;
-  /** Tier-weighted remaining quota, 0–100. */
+  /** Remaining included quota, weighted by credit allowance or account tier, 0–100. */
   capacity: number;
+  /** Actual included credits, summed across in-service accounts. */
+  credits: ModelQuota["credits"] | null;
   /** The account routing this pool now; null before its first request or after it stops being routable. */
   serving: DashboardAccount | null;
   /** Eligible accounts after `serving`, the policy's pick first. */
@@ -120,14 +122,22 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
     let remainingRequests = 0;
     let withQuota = 0;
     let nextResetAt: number | null = null;
+    let credits: ModelQuota["credits"] | null = null;
 
     for (const member of pool.members) {
-      const weight = tierWeight(member.account.tier);
+      const credit = member.quota.credits;
+      const weight = credit?.allowanceUsd ?? tierWeight(member.account.tier);
+      if (credit) {
+        credits ??= { balanceUsd: 0, allowanceUsd: 0, purchasedUsd: 0 };
+        credits.balanceUsd += credit.balanceUsd;
+        credits.allowanceUsd += credit.allowanceUsd;
+        credits.purchasedUsd += credit.purchasedUsd;
+      }
       const pct = Math.max(0, Math.min(100, member.quota.percentRemaining || 0));
       weighted += pct * weight;
       weightTotal += weight;
       remainingRequests += (pct / 100) * weight;
-      if (pct > 0) withQuota += 1;
+      if (pct > 0 || (credit?.purchasedUsd ?? 0) > 0) withQuota += 1;
       if (member.quota.resetTime && member.quota.timerType !== "fresh") {
         const resetAt = Date.parse(member.quota.resetTime);
         const remaining = resetAt - now;
@@ -154,9 +164,14 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
       .filter((a): a is DashboardAccount => Boolean(a))
       .slice(0, 2);
 
-    const capacity = weightTotal > 0 ? Math.round(weighted / weightTotal) : 0;
+    const capacity = credits && credits.allowanceUsd > 0
+      ? Math.max(0, Math.min(100, Math.round(credits.balanceUsd / credits.allowanceUsd * 100)))
+      : weightTotal > 0 ? Math.round(weighted / weightTotal) : 0;
+    const availableCapacity = credits && credits.allowanceUsd > 0
+      ? (credits.balanceUsd + credits.purchasedUsd) / credits.allowanceUsd * 100
+      : capacity;
     const burnPerHour = burnByPool[key] || 0;
-    const hoursLeft = burnPerHour > 0 ? remainingRequests / burnPerHour : null;
+    const hoursLeft = !credits && burnPerHour > 0 ? remainingRequests / burnPerHour : null;
     const breaker = overview.circuitBreakers.model[key];
     const breakerUntil = breaker && breaker > now ? breaker : null;
 
@@ -164,8 +179,8 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
     if (breakerUntil || (pool.members.length > 0 && withQuota === 0)) state = "blocked";
     else if (diagnostics && !diagnostics.selectedEmail && diagnostics.availableCandidates === 0)
       state = "blocked";
-    else if (capacity === 0) state = "empty";
-    else if (capacity < 20) state = "low";
+    else if (availableCapacity === 0) state = "empty";
+    else if (availableCapacity < 20) state = "low";
 
     pools.push({
       key,
@@ -174,6 +189,7 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
       members: pool.members,
       withQuota,
       capacity,
+      credits,
       serving,
       nextUp,
       nextResetAt,
@@ -196,4 +212,32 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
       providerRank(a.provider) - providerRank(b.provider) ||
       a.name.localeCompare(b.name),
   );
+}
+
+export interface ProviderGroup {
+  provider: string;
+  accounts: DashboardAccount[];
+  pools: ModelPool[];
+}
+
+/** Connected providers remain visible even before their first successful quota poll. */
+export function buildProviderGroups(overview: DashboardOverview, now: number): ProviderGroup[] {
+  const groups = new Map<string, ProviderGroup>();
+  const ensure = (provider: string): ProviderGroup => {
+    let group = groups.get(provider);
+    if (!group) {
+      group = { provider, accounts: [], pools: [] };
+      groups.set(provider, group);
+    }
+    return group;
+  };
+  for (const account of overview.accounts) {
+    const providers = new Set([
+      ...providerIds(account),
+      ...account.quota.map(quotaProvider),
+    ]);
+    for (const provider of providers) ensure(provider).accounts.push(account);
+  }
+  for (const pool of buildPools(overview, now)) ensure(pool.provider).pools.push(pool);
+  return [...groups.values()].sort((a, b) => providerRank(a.provider) - providerRank(b.provider));
 }

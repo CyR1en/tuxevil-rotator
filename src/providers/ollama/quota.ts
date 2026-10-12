@@ -1,14 +1,14 @@
-// Ollama Cloud quota polling: `GET /api/usage` → monthly pool.
+// Ollama Cloud quota polling: `GET /api/balance` → included credits/windows.
 //
 // Ported from the ollama-rotator project (same author) into the
 // tuxevil-rotator provider layer.
 
 import { fetchWithRetry } from "../../fetch-with-retry.js";
-import { OLLAMA_USAGE_URL, OLLAMA_USER_AGENT } from "../../types.js";
+import { OLLAMA_BALANCE_URL, OLLAMA_USAGE_URL, OLLAMA_USER_AGENT } from "../../types.js";
 import { getOllamaApiKey } from "./credentials.js";
 import type { AccountRuntime, ModelQuota } from "../../types.js";
 import type { QuotaFetchContext } from "../adapter.js";
-import { recordUsagePoll } from "./quota-poll-store.js";
+import { recordParsedQuotaPolls, recordUsagePoll } from "./quota-poll-store.js";
 import {
   nextWeeklyResetMs,
   sessionWindowEndMs,
@@ -16,10 +16,11 @@ import {
 } from "./usage-windows.js";
 import { getAccountProxyDispatcher } from "../proxy-dispatcher.js";
 import { sortQuotaPools } from "../registry.js";
-import { OLLAMA_QUOTA_POOL_KEY } from "../credential-helpers.js";
+import { getQuotaItemProviderId, OLLAMA_QUOTA_POOL_KEY } from "../credential-helpers.js";
 
 /**
- * Poll `GET /api/usage` for one account and store the parsed pool quotas.
+ * Poll balance for actual remaining quota; the usage endpoint now reports
+ * historical consumption, not subscription limits.
  * Non-2xx responses flag the account (401/403) via the context callbacks;
  * network errors are swallowed (quota stays stale, rotation falls back to
  * request-count based rotation).
@@ -29,7 +30,7 @@ export async function fetchProviderUsage(
   ctx: QuotaFetchContext,
 ): Promise<void> {
   try {
-    const response = await fetchWithRetry(OLLAMA_USAGE_URL, {
+    const options = {
       method: "GET",
       headers: {
         Authorization: `Bearer ${getOllamaApiKey(account.config) ?? ""}`,
@@ -37,47 +38,58 @@ export async function fetchProviderUsage(
       },
       timeoutMs: 8000,
       dispatcher: getAccountProxyDispatcher(account, "ollama"),
-    });
+    };
+    let response = await fetchWithRetry(OLLAMA_BALANCE_URL, options);
+    const legacy = response.status === 404;
+    if (legacy) {
+      await response.body?.cancel();
+      response = await fetchWithRetry(OLLAMA_USAGE_URL, options);
+    }
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         const errorText = await response.text().catch(() => "");
         ctx.log(
-          `${account.config.email}: usage API returned ${response.status}, flagging account`,
+          `${account.config.email}: Ollama quota API returned ${response.status}, flagging account`,
         );
         ctx.reportQuotaPollFlag(account, response.status, errorText);
         ctx.markFlagged(
           account,
-          `Usage API ${response.status}: ${errorText}`,
+          `Ollama quota API ${response.status}: ${errorText}`,
           { triggerProtectivePause: false },
         );
       }
       return;
     }
 
-    const data = (await response.json()) as OllamaUsageResponse;
+    const data: unknown = await response.json();
     const oldQuota = account.quota || [];
-    const fresh = extractUsagePools(data, oldQuota);
-    // Drop the previous Ollama entries so the new ones fully replace
-    // them; keep entries from OTHER providers (Antigravity) so multi-
-    // provider accounts accumulate quotas across credentials.
+    const fresh = legacy
+      ? extractUsagePools(data as OllamaUsageResponse, oldQuota)
+      : extractBalancePools(data);
+    if (fresh.length === 0) {
+      ctx.log(`${account.config.email}: Ollama quota response has no recognized limits; retaining last known quota`);
+      return;
+    }
+    // Replace only this provider's quota after parsing a valid response.
     const otherProviders = (oldQuota || []).filter(
-      (q) => (q as { providerId?: string }).providerId &&
-        (q as { providerId?: string }).providerId !== "ollama",
+      (q) => getQuotaItemProviderId(q) !== "ollama",
     );
     fresh.forEach(
-      (q) => ((q as { providerId?: string }).providerId = "ollama"),
+      (q) => (q.providerId = "ollama"),
     );
     account.quota = sortQuotaPools([...otherProviders, ...fresh]);
     account.lastQuotaPoll = Date.now();
-    void recordUsagePoll(account.config.email, new Date().toISOString(), data);
+    const polledAt = new Date(account.lastQuotaPoll).toISOString();
+    if (legacy) void recordUsagePoll(account.config.email, polledAt, data as OllamaUsageResponse);
+    else void recordParsedQuotaPolls(account.config.email, polledAt, fresh);
 
     // Stash the provider-local poll log for the rotator to emit as a
     // single consolidated line per cycle.
     account.lastPollByProvider ??= {};
     account.lastPollByProvider["ollama"] = account.quota
       .filter(
-        (q) => (q as { providerId?: string }).providerId === "ollama",
+        (q) => q.providerId === "ollama",
       )
       .map((q) => {
         const remain = q.resetTime
@@ -91,7 +103,7 @@ export async function fetchProviderUsage(
       })
       .join(" | ");
   } catch {
-    // Network error, skip
+    ctx.log(`${account.config.email}: Ollama quota poll failed; retaining last known quota`);
   }
 }
 
@@ -106,9 +118,9 @@ export interface OllamaUsageResponse {
 /**
  * Parse `GET /api/usage` into Ollama quota pools.
  *
- * Current Ollama Cloud responses expose one account-wide `monthly` pool. The
- * legacy session/weekly parser remains as a fallback for older responses so
- * an upgrade does not make an account temporarily unroutable.
+ * Older Ollama Cloud usage responses exposed a monthly pool or legacy
+ * session/weekly pools. Used only when /api/balance is unavailable; today
+ * /api/usage returns consumption totals and must not be treated as quota.
  */
 export function extractUsagePools(
   data: OllamaUsageResponse,
@@ -213,4 +225,64 @@ export function extractUsagePools(
   }
 
   return quotas;
+}
+
+/** Read the current balance endpoint without guessing budgets from historic spend. */
+export function extractBalancePools(data: unknown): ModelQuota[] {
+  if (!isObject(data) || !isObject(data.included)) return [];
+  const included = data.included;
+  const balance = included.balance_usd;
+  const allowance = included.allowance_usd;
+  const purchased = isObject(data.purchased) ? data.purchased.balance_usd : undefined;
+  if (isFiniteNumber(balance) && isFiniteNumber(allowance) && allowance > 0) {
+    const remaining = Math.max(0, Math.min(1, balance / allowance));
+    return [{
+      modelKey: OLLAMA_QUOTA_POOL_KEY,
+      displayName: "Ollama",
+      percentRemaining: remainingPercent(remaining * 100),
+      usageRaw: 1 - remaining,
+      credits: {
+        balanceUsd: Math.max(0, balance),
+        allowanceUsd: allowance,
+        purchasedUsd: isFiniteNumber(purchased) ? Math.max(0, purchased) : 0,
+      },
+      resetTime: isObject(included.period) ? validResetTime(included.period.until) : null,
+      timerType: "monthly",
+    }];
+  }
+
+  const quotas: ModelQuota[] = [];
+  for (const pool of ["monthly", "session", "weekly"] as const) {
+    const window = included[pool];
+    if (!isObject(window) || !isFiniteNumber(window.remaining_percent)) continue;
+    const percentRemaining = remainingPercent(window.remaining_percent);
+    const resetTime = validResetTime(window.resets_at);
+    quotas.push({
+      modelKey: pool,
+      displayName: pool === "monthly" ? "Ollama" : pool === "session" ? "Session" : "Weekly",
+      percentRemaining,
+      usageRaw: 1 - Math.max(0, Math.min(100, window.remaining_percent)) / 100,
+      resetTime,
+      timerType: pool === "monthly" ? "monthly" : pool === "weekly" ? "7d"
+        : !resetTime && percentRemaining === 100 ? "fresh" : "5h",
+    });
+  }
+  return quotas;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function remainingPercent(percent: number): number {
+  // A rounding artifact must not make a still-usable credit balance unroutable.
+  return percent > 0 ? Math.max(1, Math.min(100, Math.round(percent))) : 0;
+}
+
+function validResetTime(value: unknown): string | null {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 }

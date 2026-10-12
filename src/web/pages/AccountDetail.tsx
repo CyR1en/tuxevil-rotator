@@ -3,7 +3,7 @@
 import type { JSX } from "preact";
 import type { AccountTier, ModelQuota } from "../../types.js";
 import type { DashboardAccount, DashboardOverview } from "../../dashboard-types.js";
-import { formatCount } from "../lib/format.js";
+import { formatCount, formatUsd } from "../lib/format.js";
 import {
   ACCOUNT_TIERS,
   accountStatus,
@@ -256,6 +256,12 @@ function QuotaRow({ account, quota, inactive }: { account: DashboardAccount; quo
         <span class="num quota-pct">{quota.percentRemaining}%</span>
       </div>
       <Meter value={quota.percentRemaining} label={`${quota.displayName} quota remaining`} />
+      {quota.credits && (
+        <p class="cell-sub num">
+          {formatUsd(quota.credits.balanceUsd)} / {formatUsd(quota.credits.allowanceUsd)} included credits remaining
+          {quota.credits.purchasedUsd > 0 && <> · {formatUsd(quota.credits.purchasedUsd)} purchased credits</>}
+        </p>
+      )}
       <div class="quota-meta">
         <span>{TIMER_LABELS[quota.timerType] ?? quota.timerType}</span>
         {quota.timerType !== "fresh" && resetAt && resetAt > now.value && (

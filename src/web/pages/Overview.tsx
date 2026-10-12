@@ -1,12 +1,12 @@
 // Overview: is routing working, how long will each model last, and what
 // needs the operator. Model pools come first; accounts are one click away.
 
-import type { JSX } from "preact";
+import { type JSX } from "preact";
 import { useMemo, useState } from "preact/hooks";
 import type { DashboardOverview } from "../../dashboard-types.js";
 import { buildAttention, SEVERITY_ICON, SEVERITY_TONE, type AttentionAction, type AttentionItem } from "../lib/attention.js";
-import { buildPools, type ModelPool } from "../lib/pools.js";
-import { formatClock, formatCompact, formatCount, formatDuration, formatMs, pluralize } from "../lib/format.js";
+import { buildProviderGroups, type ProviderGroup, type ModelPool } from "../lib/pools.js";
+import { formatClock, formatCompact, formatCount, formatDuration, formatMs, formatUsd, pluralize } from "../lib/format.js";
 import {
   canServe,
   isCooling,
@@ -42,7 +42,7 @@ export function OverviewPage(): JSX.Element {
   const data = overview.value!;
   const tickNow = now.value;
   const minuteNow = Math.floor(tickNow / 60_000);
-  const pools = useMemo(() => buildPools(data, Date.now()), [data, minuteNow]);
+  const providers = useMemo(() => buildProviderGroups(data, Date.now()), [data, minuteNow]);
   const attention = useMemo(
     () => buildAttention(data, Date.now(), masker.value.name),
     [data, masker.value, minuteNow],
@@ -61,7 +61,7 @@ export function OverviewPage(): JSX.Element {
       />
       <StatusHero data={data} attention={attention} />
       {attention.length > 0 && <AttentionPanel items={attention} />}
-      <ModelsPanel pools={pools} />
+      <ProvidersPanel providers={providers} />
       <div class="grid-2">
         <RecentProblems />
         <ControlsPanel data={data} />
@@ -322,6 +322,8 @@ const POOL_STATE: Record<ModelPool["state"], { label: string; tone: Tone } | nul
 };
 
 function estimateText(pool: ModelPool): { text: string; tone: Tone | null; title: string } {
+  if (pool.credits)
+    return { text: "—", tone: null, title: "Credit consumption depends on the model and tokens used; request counts alone cannot predict exhaustion." };
   if (pool.burnPerHour <= 0 || pool.hoursLeft === null)
     return { text: "Idle", tone: null, title: "No requests for this pool in the last hour" };
   const hours = pool.hoursLeft;
@@ -333,24 +335,24 @@ function estimateText(pool: ModelPool): { text: string; tone: Tone | null; title
   };
 }
 
-function ModelsPanel({ pools }: { pools: ModelPool[] }): JSX.Element {
+function ProvidersPanel({ providers }: { providers: ProviderGroup[] }): JSX.Element {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <Panel
-      title="Models"
-      subtitle="Pooled quota per model across accounts that are in service, weighted by tier."
+      title="Providers"
+      subtitle="Connected providers and their quota pools across accounts in service, weighted by allowance or tier."
       flush
     >
-      {pools.length === 0 ? (
-        <EmptyState icon="accounts" title="No quota data yet">
-          Model pools appear after the first quota poll of a connected account.
+      {providers.length === 0 ? (
+        <EmptyState icon="accounts" title="No providers connected">
+          Add an account to see its providers and quota pools.
         </EmptyState>
       ) : (
         <div class="table-scroll">
           <table class="table pools-table">
             <thead>
               <tr>
-                <th scope="col">Model</th>
+                <th scope="col">Provider / quota pool</th>
                 <th scope="col">Remaining</th>
                 <th scope="col">Serving</th>
                 <th scope="col" class="hide-sm">Next up</th>
@@ -362,9 +364,17 @@ function ModelsPanel({ pools }: { pools: ModelPool[] }): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {pools.map((pool) => (
+              {providers.flatMap((group) => group.pools.length > 0 ? group.pools.map((pool) => (
                 <PoolRow key={pool.key} pool={pool} expanded={open === pool.key} onToggle={() => setOpen(open === pool.key ? null : pool.key)} />
-              ))}
+              )) : [
+                  <tr key={group.provider}>
+                    <th scope="row">{providerLabel(group.provider)}</th>
+                    <td colSpan={6} class="muted">
+                      {pluralize(group.accounts.length, "connected account")}
+                      {" · Quota unavailable"}
+                    </td>
+                  </tr>
+              ])}
             </tbody>
           </table>
         </div>
@@ -393,9 +403,15 @@ function PoolRow({ pool, expanded, onToggle }: { pool: ModelPool; expanded: bool
         </th>
         <td data-label="Remaining">
           <div class="pool-capacity">
-            <Meter value={pool.capacity} label={`${pool.name} pooled quota remaining`} />
+            <Meter value={pool.capacity} label={`${pool.name} pooled ${pool.credits ? "included credits" : "quota"} remaining`} />
             <span class="num">{pool.capacity}%</span>
           </div>
+          {pool.credits && (
+            <div class="cell-sub num">
+              {formatUsd(pool.credits.balanceUsd)} / {formatUsd(pool.credits.allowanceUsd)} included
+              {pool.credits.purchasedUsd > 0 && <> · {formatUsd(pool.credits.purchasedUsd)} purchased</>}
+            </div>
+          )}
           <div class="cell-sub">
             {pool.withQuota} of {pluralize(pool.members.length, "account")} with quota
           </div>

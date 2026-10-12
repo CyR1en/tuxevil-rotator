@@ -352,9 +352,10 @@ export interface ModelQuota {
   percentRemaining: number;
   /** Raw usage fraction (0..1) when the provider reports one (Ollama). */
   usageRaw?: number;
+  /** Included monthly credits and optional prepaid credits reported by Ollama. */
+  credits?: { balanceUsd: number; allowanceUsd: number; purchasedUsd: number };
   resetTime: string | null;
-  // Timer classification based on resetTime duration. Ollama's current
-  // account-wide pool is monthly and has no provider-supplied reset time.
+  // Timer classification based on the provider window.
   timerType: "fresh" | "5h" | "7d" | "monthly";
 }
 
@@ -977,29 +978,37 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachingPer1M: 0.02,
   },
 
-  // Ollama Cloud free-tier model pricing (USD per 1M tokens), supplied by
-  // the operator from Ollama Cloud's published rates. Cached-input rates are
-  // retained for spend metadata; aggregate token logs currently price input
-  // tokens at the regular input rate because they do not expose cache hits.
-  "gpt-oss:20b":                 { inputPer1M: 0.07,   outputPer1M: 0.30, cachingPer1M: 0.035 },
-  "gpt-oss:120b":                { inputPer1M: 0.15,   outputPer1M: 0.60, cachingPer1M: 0.014 },
-  "deepseek-v4-flash:0731":      { inputPer1M: 0.14,   outputPer1M: 0.28,  cachingPer1M: 0.0028 },
-  "deepseek-v4-pro:0813":        { inputPer1M: 1.74,   outputPer1M: 3.48 },
-  "qwen3.5:397b":                { inputPer1M: 0.60,   outputPer1M: 3.60 },
-  "glm-5.1":                     { inputPer1M: 0.80,   outputPer1M: 2.56 },
-  "glm-5.2":                     { inputPer1M: 0.80,   outputPer1M: 2.56 },
-  "glm-5.3":                     { inputPer1M: 1.40,   outputPer1M: 4.40 },
-  "glm-5.3-flash":               { inputPer1M: 0.15,   outputPer1M: 0.50 },
-  "gemma4:31b":                  { inputPer1M: 0.14,   outputPer1M: 0.40, cachingPer1M: 0.05 },
-  "kimi-k2.6":                   { inputPer1M: 0.95,   outputPer1M: 4.00 },
-  "kimi-k2.7-code":              { inputPer1M: 0.95,   outputPer1M: 4.00 },
-  "kimi-k3":                     { inputPer1M: 0.95,   outputPer1M: 4.00 },
-  "minimax-m2.7":                { inputPer1M: 0.30,   outputPer1M: 1.20 },
-  "minimax-m3":                  { inputPer1M: 0.30,   outputPer1M: 1.20 },
-  "mistral-large-3:675b":        { inputPer1M: 0.50,   outputPer1M: 1.50 },
-  "nemotron-3-nano:30b":         { inputPer1M: 0.06,   outputPer1M: 0.24 },
-  "nemotron-3-super":            { inputPer1M: 0.015,  outputPer1M: 0.60, cachingPer1M: 0.015 },
-  "nemotron-3-ultra":            { inputPer1M: 0.10,   outputPer1M: 3.00, cachingPer1M: 0.10 },
+  // Ollama Cloud standard USD/1M rates, verified 2026-10-11:
+  // https://ollama.com/pricing. Aggregates do not track cache hits or off-peak
+  // billing, so savings represent standard list-price value, not a net saving.
+  "gpt-oss:20b": { inputPer1M: 0.07, outputPer1M: 0.30, cachingPer1M: 0.035 },
+  "gpt-oss:120b": { inputPer1M: 0.15, outputPer1M: 0.60, cachingPer1M: 0.014 },
+  "deepseek-v4.1-flash": { inputPer1M: 0.30, outputPer1M: 1.20, cachingPer1M: 0.006 },
+  "deepseek-v4-pro": { inputPer1M: 1.32, outputPer1M: 3.96, cachingPer1M: 0.044 },
+  "glm-5.2": { inputPer1M: 1.40, outputPer1M: 4.40, cachingPer1M: 0.26 },
+  "glm-5.3": { inputPer1M: 1.40, outputPer1M: 4.40, cachingPer1M: 0.26 },
+  "glm-5.3-flash": { inputPer1M: 0.15, outputPer1M: 0.50, cachingPer1M: 0.03 },
+  "gemma4": { inputPer1M: 0.14, outputPer1M: 0.40, cachingPer1M: 0.05 },
+  "gemma4:31b": { inputPer1M: 0.14, outputPer1M: 0.40, cachingPer1M: 0.05 },
+  "kimi-k2.6": { inputPer1M: 0.95, outputPer1M: 4.00, cachingPer1M: 0.16 },
+  "kimi-k2.7-code": { inputPer1M: 0.95, outputPer1M: 4.00, cachingPer1M: 0.19 },
+  "kimi-k3": { inputPer1M: 3.00, outputPer1M: 15.00, cachingPer1M: 0.30 },
+  "minimax-m2.7": { inputPer1M: 0.30, outputPer1M: 1.20, cachingPer1M: 0.06 },
+  "minimax-m3": { inputPer1M: 0.60, outputPer1M: 2.40, cachingPer1M: 0.12 },
+  "mistral-large-4": { inputPer1M: 0.68, outputPer1M: 2.09, cachingPer1M: 0.07 },
+  "mistral-large-3": { inputPer1M: 0.50, outputPer1M: 1.50 },
+  "mistral-large-3:675b": { inputPer1M: 0.50, outputPer1M: 1.50 },
+  "nemotron-3-nano": { inputPer1M: 0.06, outputPer1M: 0.24 },
+  "nemotron-3-nano:30b": { inputPer1M: 0.06, outputPer1M: 0.24 },
+  "nemotron-3-super": { inputPer1M: 0.015, outputPer1M: 0.60, cachingPer1M: 0.015 },
+  "nemotron-3-ultra": { inputPer1M: 0.10, outputPer1M: 3.00, cachingPer1M: 0.10 },
+
+  // Retired/versioned models absent from the current official table. Preserve
+  // their historical operator-supplied estimates; do not map to newer releases.
+  "deepseek-v4-flash:0731": { inputPer1M: 0.14, outputPer1M: 0.28, cachingPer1M: 0.0028 },
+  "deepseek-v4-pro:0813": { inputPer1M: 1.74, outputPer1M: 3.48 },
+  "qwen3.5:397b": { inputPer1M: 0.60, outputPer1M: 3.60 },
+  "glm-5.1": { inputPer1M: 0.80, outputPer1M: 2.56 },
 
   // OpenCode Zen free models — zero provider cost (USD per 1M tokens)
   "big-pickle":                    { inputPer1M: 0.00, outputPer1M: 0.00 },
@@ -1020,6 +1029,12 @@ export function getModelPricing(model: string): ModelPricing | undefined {
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
   const lower = model.toLowerCase();
   if (MODEL_PRICING[lower]) return MODEL_PRICING[lower];
+  // Ollama uses -cloud suffixes and provider-prefixed ids. Resolve only exact
+  // aliases, before the unrelated Antigravity GPT-OSS family fallback.
+  const ollamaId = lower.replace(/^ollama\//, "").replace(/(?::cloud|-cloud)$/, "");
+  if (ollamaId !== lower) {
+    return MODEL_PRICING[ollamaId];
+  }
   // Dynamic family fallbacks for unseen future models. Keep provider and
   // version checks explicit so an unrelated model containing "flash" cannot
   // inherit Gemini pricing.
@@ -1111,6 +1126,7 @@ export const QUOTA_API_URL =
 // ── Ollama Cloud endpoints ──────────────────────────────────────────
 export const OLLAMA_API_BASE = "https://ollama.com/api";
 export const OLLAMA_OPENAI_BASE = "https://ollama.com/v1";
+export const OLLAMA_BALANCE_URL = "https://ollama.com/api/balance";
 export const OLLAMA_USAGE_URL = "https://ollama.com/api/usage";
 export const OLLAMA_TAGS_URL = "https://ollama.com/api/tags";
 // Mutable so tests can redirect to a local stub (same pattern as ANTIGRAVITY_ENDPOINTS).

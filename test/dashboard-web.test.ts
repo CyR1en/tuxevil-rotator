@@ -9,7 +9,7 @@ import { ACCOUNT_FILTERS, matchesQuery, sortAccounts } from "../src/web/lib/acco
 import { modelColor } from "../src/web/lib/colors.js";
 import { formatCompact, formatDuration, formatMs, formatUsd } from "../src/web/lib/format.js";
 import { createMasker } from "../src/web/lib/mask.js";
-import { buildPools, poolKeyForModel } from "../src/web/lib/pools.js";
+import { buildPools, buildProviderGroups, poolKeyForModel } from "../src/web/lib/pools.js";
 import { errorHint, isKickstartable, quotaProvider } from "../src/web/lib/status.js";
 import {
   buildModelRows,
@@ -618,5 +618,53 @@ describe("models page", () => {
     assert.equal(formatContextWindow(1_048_576), "1M");
     assert.equal(formatContextWindow(1_050_000), "1.05M");
     assert.equal(formatContextWindow(null), "—");
+  });
+});
+
+describe("overview providers", () => {
+  it("includes Ollama without quota and separates quotas by provider on shared accounts", () => {
+    const shared = account("shared@x.dev", { provider: "google-antigravity+ollama", quota: [quota("claude", 80)] });
+    const groups = buildProviderGroups(overview({ accounts: [shared] }), NOW);
+    assert.deepEqual(groups.map(g => g.provider), ["google-antigravity", "ollama"]);
+    assert.equal(groups[0].pools.length, 1);
+    assert.equal(groups[1].pools.length, 0);
+    assert.deepEqual(groups[1].accounts.map(a => a.email), [shared.email]);
+  });
+  it("keeps Ollama session and weekly pools together without duplicating the provider", () => {
+    const groups = buildProviderGroups(overview({ accounts: [account("ollama@x.dev", {
+      provider: "ollama", quota: [quota("session", 70), quota("weekly", 30)],
+    })] }), NOW);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].provider, "ollama");
+    assert.equal(groups[0].pools.length, 2);
+  });
+});
+
+describe("Ollama credit pools", () => {
+  it("weights real balances by their allowances and shows the renewal date without a request-based forecast", () => {
+    const [pool] = buildPools(overview({ accounts: [
+      account("free@x.dev", { provider: "ollama", tier: "ultra", quota: [quota("monthly", 40, {
+        providerId: "ollama", timerType: "monthly",
+        credits: { balanceUsd: 1, allowanceUsd: 2.5, purchasedUsd: 0 },
+      })] }),
+      account("paid@x.dev", { provider: "ollama", tier: "free", quota: [quota("monthly", 50, {
+        providerId: "ollama", timerType: "monthly",
+        credits: { balanceUsd: 30, allowanceUsd: 60, purchasedUsd: 5 },
+      })] }),
+    ], recentRequestsByModel: { "gemma4:31b": 10 } }), NOW);
+    assert.deepEqual(pool.credits, { balanceUsd: 31, allowanceUsd: 62.5, purchasedUsd: 5 });
+    assert.equal(pool.capacity, 50, "Ollama's allowance is independent of the parent account's Google tier");
+    assert.equal(pool.nextResetAt, NOW + 2 * H);
+    assert.equal(pool.hoursLeft, null, "request counts do not predict dollar consumption");
+  });
+
+  it("does not mark a pool blocked when purchased credits remain", () => {
+    const [pool] = buildPools(overview({ accounts: [account("credits@x.dev", { provider: "ollama", quota: [quota("monthly", 0, {
+      providerId: "ollama", timerType: "monthly",
+      credits: { balanceUsd: 0, allowanceUsd: 2.5, purchasedUsd: 5 },
+    })] })] }), NOW);
+    assert.equal(pool.withQuota, 1);
+    assert.equal(pool.state, "ok");
+    assert.equal(pool.capacity, 0, "included usage stays separate from purchased credit");
   });
 });

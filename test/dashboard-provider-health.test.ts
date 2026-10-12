@@ -141,6 +141,39 @@ describe("provider health from the real catalog and routing snapshot", () => {
     assert.equal(summaries.find((summary) => summary.provider.id === "google-antigravity")!.canServe, 1);
   });
 
+  it("keeps purchased Ollama credits usable and respects the Models account provider switch", async () => {
+    const rotator = makeRotator([mixedAccount]);
+    rotator.setOllamaModels(["new-ollama-model"]);
+    const [account] = runtimeAccounts(rotator);
+    const credits = { balanceUsd: 0, allowanceUsd: 2.5, purchasedUsd: 5 };
+    account.quota = [
+      { ...quota("monthly", "ollama", 0), credits },
+      quota("gemini", "google-antigravity", 80),
+    ];
+
+    for (const enabled of [true, false, true]) {
+      assert.equal(await rotator.setAccountProviderEnabled(getAccountIdentity(account), "ollama", enabled), true);
+      const now = Date.now();
+      const overview = buildOverview(rotator.getStatus(), now, { database: false });
+      const summaries = summarizeProviders(buildModelCatalogResponse(rotator), overview, now);
+      const ollama = summaries.find((summary) => summary.provider.id === "ollama")!;
+      assert.equal(rotator.getAutoRoutingCandidateStatus("new-ollama-model", "ollama").available, enabled);
+      assert.equal(overview.routingDiagnostics.monthly.availableCandidates, Number(enabled));
+      assert.equal(ollama.canServe, Number(enabled));
+      assert.equal(ollama.state, enabled ? "healthy" : "unavailable");
+
+      const pools = buildPools(overview, now);
+      const monthly = pools.find((pool) => pool.key === "monthly")!;
+      assert.deepEqual(monthly.credits, enabled ? credits : null);
+      assert.equal(monthly.members.length, Number(enabled));
+      assert.equal(monthly.withQuota, Number(enabled));
+      assert.equal(monthly.capacity, 0, "purchased credits do not inflate the included balance");
+      assert.equal(monthly.state, enabled ? "ok" : "blocked");
+      assert.equal(summaries.find((summary) => summary.provider.id === "google-antigravity")!.canServe, 1);
+      assert.equal(pools.find((pool) => pool.key === "gemini")!.capacity, 80);
+    }
+  });
+
   it("reports zero quota per provider while allowing unpolled and explicitly unknown quota", () => {
     for (const provider of providerCases) {
       const rotator = makeRotator([allProvidersAccount]);

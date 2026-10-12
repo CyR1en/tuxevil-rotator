@@ -27,6 +27,7 @@
 
 - **Dashboard dev server**: `npm run dashboard:dev` no longer crashes on `GET /v1/models`.
 - **Settings writes**: writes to one settings key now run in order, so quick successive changes can no longer leave an older configuration or state on disk.
+- **Ollama quota polling**: Read remaining credits and renewal dates from `/api/balance` instead of treating the consumption histogram at `/api/usage` as quota data. Overview and account details show actual credit balances, invalid responses preserve prior quotas, and purchased credits remain routable after the included balance runs out.
 - **Codex reauthentication state**: A successful Codex login now clears the previous provider rejection and cached Codex access token, so reauthenticated accounts leave Needs attention immediately.
 
 ## [4.0.0] - 2026-10-05

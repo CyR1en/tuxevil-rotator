@@ -176,7 +176,7 @@ function TokenUsagePanel({
               value={view.summary.peak.bar ? formatAxisTokens(view.summary.peak.value) : "—"}
               sub={view.summary.peak.bar ? `per ${spec.per} · ${barTitle(view.summary.peak.bar, spec, nowMs)}` : "No traffic yet"}
             />
-            <Stat label="Est. savings" value={formatUsd(view.savings.totalUsd)} sub="vs. paid API list prices" tone="ok" />
+            <Stat label="Est. savings" value={formatUsd(view.savings.totalUsd)} sub="standard list prices; excludes cache/off-peak discounts and plan costs" tone="ok" />
           </div>
           <TokenChart
             bars={view.bars}
@@ -221,7 +221,7 @@ function TokenUsagePanel({
             )}
             {usage && (
               <span class="muted">
-                All time: {formatCompact(usage.allTime.inputTokens + usage.allTime.outputTokens)} tokens · {formatCount(usage.allTime.requests)} requests · {formatUsd(usage.allTime.savingsUsd)} saved
+                All time: {formatCompact(usage.allTime.inputTokens + usage.allTime.outputTokens)} tokens · {formatCount(usage.allTime.requests)} requests · {formatUsd(usage.allTime.savingsUsd)} estimated list-price value
               </span>
             )}
             {loading && <Spinner />}
@@ -293,7 +293,7 @@ function SavingsPanel({ usage }: { usage: UsageResponse | null }): JSX.Element {
     return [...models];
   }, [usage, bars]);
   return (
-    <Panel title="Savings by model" subtitle={usage ? `In the ${RANGE_SPECS[usage.range].window}, at paid API list prices.` : undefined} flush>
+    <Panel title="Savings by model" subtitle={usage ? `In the ${RANGE_SPECS[usage.range].window}, at standard list prices, excluding cache/off-peak discounts and plan costs.` : undefined} flush>
       {!usage ? (
         <div class="panel-loading">
           <Spinner />
