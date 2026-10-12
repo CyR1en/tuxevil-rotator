@@ -770,6 +770,8 @@ export interface HealthScoreBreakdown {
 }
 
 export interface RoutingAccountDiagnostic {
+  /** Stable account identity; older diagnostic producers may omit it. */
+  id?: string;
   email: string;
   label: string;
   status: AccountStatus["status"];

@@ -172,10 +172,17 @@ export function canServeProvider(
   const pools = new Set(routing?.quotaPools.length ? routing.quotaPools : quotas.map((quota) => quota.modelKey));
   if (pools.size === 0) return true;
   return [...pools].some((key) => {
-    const diagnostics = routing?.diagnostics[key]?.accounts.filter((entry) => entry.email === account.email) ?? [];
-    // Email-only diagnostics cannot distinguish same-email accounts. In that
-    // case, use this account's own quota and cooldown instead of another's.
-    if (diagnostics.length === 1) return diagnostics[0].rejectedReason === null;
+    const diagnostics = routing?.diagnostics[key]?.accounts ?? [];
+    const identified = account.id ? diagnostics.filter((entry) => entry.id === account.id) : [];
+    const byEmail = diagnostics.filter((entry) => entry.email === account.email);
+    // A legacy producer may omit identity. Email is usable only if unique
+    // and must never replace a different identity supplied by the server.
+    const diagnostic = identified.length === 1
+      ? identified[0]
+      : identified.length === 0 && byEmail.length === 1 && (!account.id || !byEmail[0].id)
+        ? byEmail[0]
+        : null;
+    if (diagnostic) return diagnostic.rejectedReason === null;
     if ((account.cooldownsByModel[key] ?? 0) > now) return false;
     // Missing and negative quota mean unknown, which routing permits.
     return quotas.find((quota) => quota.modelKey === key)?.percentRemaining !== 0;
