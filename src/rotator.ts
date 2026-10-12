@@ -77,6 +77,7 @@ import {
   setProviderTurnedOff,
   type CatalogModel,
 } from "./model-catalog.js";
+import { getModelCatalogRevision } from "./model-catalog-revision.js";
 import { logger } from "./logger.js";
 import { getAccountProxyDispatcher } from "./providers/proxy-dispatcher.js";
 import {
@@ -4299,6 +4300,7 @@ export class AccountRotator {
       hostedOAuthConfigured: isHostedOAuthConfigured(),
       ollamaModels: this.getOllamaModels(),
       codexModels: this.getCodexModels(),
+      modelCatalogRevision: getModelCatalogRevision(this),
       modelTierAccess: this.accounts.some((a) =>
         hasCredential(a.config, "ollama"),
       )

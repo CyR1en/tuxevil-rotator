@@ -647,6 +647,8 @@ export interface AdminNotification {
 // Dashboard API response
 export interface StatusResponse {
   version: string;
+  /** Stable public Models state; changes invalidate the dashboard catalog. */
+  modelCatalogRevision?: string;
   proxyPort: number;
   requestsPerRotation: number;
   maxConcurrentRequestsPerAccount: number;

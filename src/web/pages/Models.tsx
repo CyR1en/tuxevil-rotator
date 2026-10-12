@@ -2,7 +2,6 @@
 // clients can call. The provider drawer lives at /dashboard/models/<provider>.
 
 import type { JSX } from "preact";
-import { signal } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { CatalogModelEntry, ModelCatalogResponse } from "../../dashboard-types.js";
 import { pluralize } from "../lib/format.js";
@@ -31,6 +30,7 @@ import {
 import { providerLabel, type Tone } from "../lib/status.js";
 import { run } from "../state/actions.js";
 import { api } from "../state/api.js";
+import { createModelCatalogState } from "../state/model-catalog.js";
 import { accountPath, BASE, navigate, providerPath, query, route, setQuery } from "../state/router.js";
 import { masker, now, overview } from "../state/store.js";
 import { Icon } from "../components/icons.js";
@@ -52,26 +52,15 @@ import {
 } from "../components/ui.js";
 import { openAddAccount } from "./shared.js";
 
-// Kept across visits so returning to the page shows the last catalog at once.
-const catalog = signal<ModelCatalogResponse | null>(null);
-const catalogError = signal<string | null>(null);
-
-async function loadCatalog(): Promise<void> {
-  try {
-    catalog.value = await api.catalog();
-    catalogError.value = null;
-  } catch (err) {
-    catalogError.value = err instanceof Error ? err.message : String(err);
-  }
-}
+const catalogState = createModelCatalogState(() => api.catalog());
+const { catalog, catalogError, loadCatalog } = catalogState;
 
 /** Apply a change, show its outcome, and keep the returned catalog. */
 async function change(
   fn: () => Promise<ModelCatalogResponse>,
   messages: { success?: string; failure: string },
 ): Promise<void> {
-  const next = await run(fn, messages);
-  if (next) catalog.value = next;
+  await catalogState.change(() => run(fn, messages));
 }
 
 const PROVIDER_STATE: Record<ProviderState, { label: string; tone: Tone }> = {
@@ -102,9 +91,7 @@ function authLabel(kind: "oauth" | "api-key"): string {
 }
 
 export function ModelsPage(): JSX.Element {
-  useEffect(() => {
-    void loadCatalog();
-  }, []);
+  useEffect(() => catalogState.watchRouting(overview, window), []);
 
   const data = overview.value!;
   const state = catalog.value;

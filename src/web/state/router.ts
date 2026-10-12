@@ -85,7 +85,8 @@ export function accountPath(email: string): string {
 }
 
 export function providerPath(providerId: string): string {
-  return `${BASE}/models/${encodeURIComponent(providerId)}`;
+  const search = route.value.page === "models" ? location.value.search : "";
+  return `${BASE}/models/${encodeURIComponent(providerId)}${search}`;
 }
 
 /** Legacy routes from the old dashboard. */
