@@ -332,6 +332,7 @@ export async function forwardRequest(
 
   const {
     displayModel: _displayModel,
+    requestedModel: _requestedModel,
     providerId: _providerId,
     selectionMode: _selectionMode,
     selectionConfidence: _selectionConfidence,

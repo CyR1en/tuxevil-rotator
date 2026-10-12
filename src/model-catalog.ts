@@ -211,6 +211,8 @@ function isTurnedOff(settings: ModelSettings, catalog: CatalogModel[], providerI
 export interface RequestModels {
   /** Id sent upstream (after aliasing). */
   model: string;
+  /** Concrete model or effort alias requested before target selection. */
+  requestedModel?: string;
   /** Catalog id the request resolved to before upstream aliasing, if different. */
   catalogModel?: string;
   /** Provider already chosen for the request. */
@@ -219,13 +221,13 @@ export interface RequestModels {
 
 /**
  * Whether a request about to be sent targets a model or provider that is
- * turned off. Checks the catalog id and the upstream id (and the alias the
- * upstream id stands for), against the pinned provider when there is one and
- * against routing otherwise.
+ * turned off. Checks the requested id, selected catalog id, and upstream id
+ * (plus their upstream aliases), against the pinned provider when there is
+ * one and against routing otherwise.
  */
 export function isRequestOff(source: ModelCatalogSource, request: RequestModels): boolean {
   const ids = new Set<string>();
-  for (const id of [request.catalogModel, request.model]) {
+  for (const id of [request.requestedModel, request.catalogModel, request.model]) {
     if (!id) continue;
     ids.add(id);
     ids.add(applyModelAlias(id));
