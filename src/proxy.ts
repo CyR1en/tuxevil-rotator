@@ -1249,12 +1249,28 @@ export async function withRotation<T>(
   ) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<RotationOutcome<T>> {
+  // Keep the admission pool and wire protocol stable across async waits and
+  // retries, even if provider order or switches change while the request waits.
+  const providerId = body.providerId ?? routedProviderId(rotator, model) ?? findProviderForModel(model, {
+    ollamaModels: new Set(rotator.getOllamaModels?.() ?? []),
+    codexModels: new Set(rotator.getCodexModels?.() ?? []),
+  })?.id;
+  const requestIsOff = (selectedProviderId = providerId): boolean => isRequestOff(rotator, {
+    model,
+    catalogModel: body.catalogModel,
+    providerId: selectedProviderId,
+  });
+  const modelOffOutcome = (): RotationOutcome<T> => ({
+    ok: false,
+    status: 404,
+    errorText: modelOffMessage(body.displayModel || model),
+  });
   const sendNoAccountsAvailable = (
     reason: string,
     context?: RotationAttemptContext,
   ): RotationOutcome<T> => {
     log(`[${model}] No healthy account available: ${reason}`, rotator, "warn");
-    const retryAfterMs = rotator.getRetryAfterMs(model, body.providerId);
+    const retryAfterMs = rotator.getRetryAfterMs(model, providerId);
     const contextFields = context
       ? { context, totalMs: Date.now() - context.requestStartMs }
       : {};
@@ -1275,25 +1291,25 @@ export async function withRotation<T>(
     };
   };
 
-  if (isRequestOff(rotator, { model, catalogModel: body.catalogModel, providerId: body.providerId })) {
-    return { ok: false, status: 404, errorText: modelOffMessage(body.displayModel || model) };
-  }
-
   const maxRetries = getStreamRecoveryMaxRetries(rotator);
   const maxAttempts = maxRetries + 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (requestIsOff()) return modelOffOutcome();
     const admissionStartedMs = Date.now();
-    const account = await rotator.getActiveAccount(model, signal, body.providerId);
+    const account = await rotator.getActiveAccount(model, signal, providerId);
     if (!account) {
       if (signal?.aborted) {
         return { ok: false, status: 499, errorText: "Client closed request" };
       }
+      if (requestIsOff()) return modelOffOutcome();
       return sendNoAccountsAvailable("rotation returned no available account");
     }
 
     const label = account.config.label || account.config.email;
-    const modelKey = routingModelKey(rotator, model, body.providerId);
+    // Release this admission's pool even if later settings or catalog updates
+    // change routing while token validation or the upstream request awaits.
+    const modelKey = routingModelKey(rotator, model, providerId);
     const displayModelKey = observedModelKey(
       rotator,
       body.displayModel || model,
@@ -1310,7 +1326,7 @@ export async function withRotation<T>(
     };
     const rotateAndRelease = async (): Promise<AccountRuntime | null> => {
       releaseCurrentAccount();
-      const nextAccount = await rotator.rotateToNext(model, account, body.providerId);
+      const nextAccount = await rotator.rotateToNext(model, account, providerId);
       return nextAccount;
     };
     const logRequestEnd = (status: string | number, extra = ""): void => {
@@ -1327,6 +1343,8 @@ export async function withRotation<T>(
     );
 
     try {
+      const provider = providerAdapterForModel(account, model, rotator, providerId);
+      if (requestIsOff(provider.id)) return modelOffOutcome();
       const skipJitter = Boolean(
         originalHeaders &&
           (originalHeaders["x-skip-safety-jitter"] === "true" ||
@@ -1353,16 +1371,12 @@ export async function withRotation<T>(
         await sleep(totalDelayMs, signal);
       }
 
-      rotator.recordUpstreamAttempt(account);
-      const provider = providerAdapterForModel(
-        account,
-        model,
-        rotator,
-        body.providerId,
-      );
+      if (requestIsOff(provider.id)) return modelOffOutcome();
       // A parent account may carry Google + Codex credentials; refresh the
       // selected provider, never merely the account's primary provider.
       await provider.ensureValidToken(account);
+      if (requestIsOff(provider.id)) return modelOffOutcome();
+      rotator.recordUpstreamAttempt(account);
       const forwarded = await provider.forwardRequest(
         account,
         { ...body },
@@ -1417,7 +1431,7 @@ export async function withRotation<T>(
 
       // success
       const result = await onSuccess(response, context);
-      const shouldRotate = rotator.recordRequest(account, model, body.providerId);
+      const shouldRotate = rotator.recordRequest(account, model, providerId);
       const inTokens =
         result && typeof result === "object" && "inputTokens" in result
           ? (result as Record<string, unknown>).inputTokens
@@ -1435,7 +1449,7 @@ export async function withRotation<T>(
         inTokens || outTokens ? ` inTokens=${inTokens} outTokens=${outTokens}` : "";
       logRequestEnd(response.status, `endpoint=${endpoint}${ttfbInfo}${tokensInfo}`);
       if (shouldRotate) {
-        await rotator.rotateToNext(model, account, body.providerId);
+        await rotator.rotateToNext(model, account, providerId);
       }
       return { ok: true, result, endpoint, context };
     } catch (err) {
@@ -1585,6 +1599,8 @@ async function handleProxyRequest(
     throw err;
   }
   let body: RequestBody;
+  let providerHint: unknown;
+  const providerId = nativeOllamaChat ? "ollama" : DEFAULT_PROVIDER;
   if (nativeOllamaChat) {
     // Native /api/chat payload ({model, messages, stream, options}) is
     // translated to the internal body shape; the internal validator expects
@@ -1610,6 +1626,7 @@ async function handleProxyRequest(
       );
       return;
     }
+    providerHint = raw.providerId;
     body = {
       project: "",
       model: raw.model,
@@ -1632,6 +1649,7 @@ async function handleProxyRequest(
         return;
       }
       body = validation.value as RequestBody;
+      providerHint = body.providerId;
     } catch {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Invalid JSON body" }));
@@ -1644,10 +1662,25 @@ async function handleProxyRequest(
     sendAuthErrorResponse(res, auth);
     return;
   }
-  // Native bodies may name a provider; the switches apply to it too.
-  if (isRequestOff(rotator, { model: body.model, providerId: body.providerId })) {
+  // Native envelopes belong to their endpoint's provider. A hint may confirm
+  // that provider, but cannot change how this payload is admitted or forwarded.
+  if (providerHint !== undefined && providerHint !== providerId) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `body.providerId must be '${providerId}' for this native endpoint` }));
+    return;
+  }
+  body.providerId = providerId;
+  const requestIsOff = (): boolean => isRequestOff(rotator, {
+    model: body.model,
+    catalogModel: body.catalogModel,
+    providerId,
+  });
+  const sendModelOff = (): void => {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: modelOffMessage(body.model), model: body.model }));
+  };
+  if (requestIsOff()) {
+    sendModelOff();
     return;
   }
   const apiKeyHash = auth.key?.tokenHash || (auth.rawKey ? hashKey(auth.rawKey) : null);
@@ -1677,7 +1710,7 @@ async function handleProxyRequest(
   const sendNoAccountsAvailable = (reason: string): void => {
     if (clientController.signal.aborted || res.destroyed) return;
     proxyLog(`[${body.model}] No healthy account available: ${reason}`, "warn");
-    const retryAfterMs = rotator.getRetryAfterMs(body.model);
+    const retryAfterMs = rotator.getRetryAfterMs(body.model, providerId);
     if (retryAfterMs > 0) {
       const retrySec = Math.ceil(retryAfterMs / 1000);
       res.writeHead(429, {
@@ -1773,19 +1806,28 @@ async function handleProxyRequest(
   const maxRetries = getStreamRecoveryMaxRetries(rotator);
   const maxAttempts = maxRetries + 1;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (requestIsOff()) {
+      sendModelOff();
+      return;
+    }
     const admissionStartedMs = Date.now();
     const account = await rotator.getActiveAccount(
       body.model,
       clientController.signal,
+      providerId,
     );
     if (!account) {
       if (clientController.signal.aborted || res.destroyed) return;
+      if (requestIsOff()) {
+        sendModelOff();
+        return;
+      }
       sendNoAccountsAvailable("rotation returned no available account");
       return;
     }
 
     const label = account.config.label || account.config.email;
-    const modelKey = rotator.resolveQuotaModelKeyForDisplay(body.model) ?? body.model; // quota routing
+    const modelKey = routingModelKey(rotator, body.model, providerId);
     const displayModelKey = observedModelKey(rotator, body.model); // metrics/logs
     const queueWaitMs = Date.now() - admissionStartedMs;
     const requestId = `${modelKey}-${Date.now().toString(36)}-${attempt + 1}`;
@@ -1793,14 +1835,11 @@ async function handleProxyRequest(
     const releaseCurrentAccount = (): void => {
       if (accountReleased) return;
       accountReleased = true;
-      rotator.finishRequest(
-        account,
-        routingModelKey(rotator, body.model),
-      );
+      rotator.finishRequest(account, modelKey);
     };
     const rotateAndRelease = async (): Promise<AccountRuntime | null> => {
       releaseCurrentAccount();
-      const nextAccount = await rotator.rotateToNext(body.model, account);
+      const nextAccount = await rotator.rotateToNext(body.model, account, providerId);
       return nextAccount;
     };
     proxyLog(
@@ -1832,6 +1871,10 @@ async function handleProxyRequest(
     };
 
     try {
+      if (requestIsOff()) {
+        sendModelOff();
+        return;
+      }
       const skipJitter = req.headers["x-skip-safety-jitter"] === "true" || req.headers["x-live-request"] === "true";
       const jitterMs = skipJitter ? 0 : rotator.getSafetyJitterMs(account);
       const globalDelayMs = skipJitter ? 0 : rotator.getGlobalDelayMs();
@@ -1851,13 +1894,22 @@ async function handleProxyRequest(
         }
         await sleep(totalDelayMs, clientController.signal);
       }
-      rotator.recordUpstreamAttempt(account);
+      if (requestIsOff()) {
+        sendModelOff();
+        return;
+      }
       const provider = providerAdapterForModel(
         account,
         body.model,
         rotator,
+        providerId,
       );
       await provider.ensureValidToken(account);
+      if (requestIsOff()) {
+        sendModelOff();
+        return;
+      }
+      rotator.recordUpstreamAttempt(account);
       const forwarded = await provider.forwardRequest(
         account,
         { ...body },
@@ -1913,7 +1965,7 @@ async function handleProxyRequest(
       }
 
       // Success or non-error client response
-      const shouldRotate = rotator.recordRequest(account, body.model);
+      const shouldRotate = rotator.recordRequest(account, body.model, providerId);
 
       const responseHeaders: Record<string, string> = {};
       response.headers.forEach((value, key) => {
@@ -1999,7 +2051,7 @@ async function handleProxyRequest(
       res.end();
 
       if (shouldRotate) {
-        await rotator.rotateToNext(body.model, account);
+        await rotator.rotateToNext(body.model, account, providerId);
       }
       return;
     } catch (err) {
