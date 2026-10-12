@@ -160,6 +160,7 @@ export function buildOverview(
   return {
     generatedAt: now,
     version: status.version,
+    modelCatalogRevision: status.modelCatalogRevision,
     proxyPort: status.proxyPort,
     startedAt: Math.round((now - (status.uptime || 0)) / 1000) * 1000,
     requestsPerRotation: status.requestsPerRotation,

@@ -28,6 +28,7 @@ else delete process.env.DATABASE_URL;
 const { setPersistedAdminToken } = await import("../src/admin-auth.js");
 const { startProxy } = await import("../src/proxy.js");
 const modelCatalog = await import("../src/model-catalog.js");
+const { getModelCatalogRevision } = await import("../src/model-catalog-revision.js");
 setPersistedAdminToken(TOKEN || null);
 
 const M = 60_000;
@@ -319,6 +320,7 @@ function getStatus() {
   const totals = [...minutes, ...hours].reduce((acc, b) => ({ input: acc.input + b.inputTokens, output: acc.output + b.outputTokens, requests: acc.requests + b.requests }), { input: 0, output: 0, requests: 0 });
   return {
     version: "3.10.0",
+    modelCatalogRevision: getModelCatalogRevision(rotator),
     proxyPort: PORT,
     requestsPerRotation: config.requestsPerRotation,
     maxConcurrentRequestsPerAccount: config.maxConcurrentRequestsPerAccount,

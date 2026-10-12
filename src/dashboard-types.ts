@@ -66,6 +66,8 @@ export interface TrafficMinute {
 export interface DashboardOverview {
   generatedAt: number;
   version: string;
+  /** Catalog/configuration changes are streamed independently of traffic. */
+  modelCatalogRevision?: string;
   proxyPort: number;
   startedAt: number;
   requestsPerRotation: number;
