@@ -763,7 +763,7 @@ function ProviderDetail({
                     const others = account.provider.split("+").filter((id) => id && id !== provider.id);
                     const quotas = providerQuotaRows(account, provider.id);
                     return (
-                      <tr key={account.email} class={off ? "is-inactive" : undefined}>
+                      <tr key={account.id ?? account.email} class={off ? "is-inactive" : undefined}>
                         <th scope="row">
                           <Link href={accountPath(account.email)} class="account-link">
                             {m.name(account.email)}
@@ -794,7 +794,7 @@ function ProviderDetail({
                             ariaLabel={`Use ${m.name(account.email)} for ${provider.name}`}
                             checked={!off}
                             onChange={(on) =>
-                              change(() => api.setAccountProviderEnabled(account.email, provider.id, on), {
+                              change(() => api.setAccountProviderEnabled(account.id ?? account.email, provider.id, on), {
                                 success: `${provider.name} turned ${on ? "on" : "off"} for ${m.name(account.email)}`,
                                 failure: `Could not change ${m.name(account.email)}`,
                               })

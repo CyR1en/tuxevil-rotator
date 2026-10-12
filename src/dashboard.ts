@@ -336,7 +336,8 @@ function catalogMethodFor(rest: string[]): string | null {
  *   PUT  /api/catalog/provider-order          { "order": ["ollama", ...] }
  *   POST /api/catalog/models/on|off           { "models": ["ollama/gpt-oss:20b"] }
  *   POST /api/catalog/new-models/on|off
- *   POST /api/catalog/accounts/:email/:provider/on|off
+ *   POST /api/catalog/accounts/:accountId/:provider/on|off
+ *        accountId is dashboard account.id; an unambiguous legacy email also works.
  */
 export async function serveCatalogApi(
   req: IncomingMessage,
@@ -394,7 +395,7 @@ export async function serveCatalogApi(
 
     if (method === "POST" && rest[0] === "accounts" && rest.length === 4 && toggle !== null) {
       if (!(await rotator.setAccountProviderEnabled(rest[1], rest[2], toggle))) {
-        return fail(404, `No ${rest[2]} credential on ${rest[1]}`);
+        return fail(404, `No unique account with a ${rest[2]} credential matches ${rest[1]}`);
       }
       return done();
     }
