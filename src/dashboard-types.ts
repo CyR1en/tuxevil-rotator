@@ -121,8 +121,9 @@ export interface DashboardSnapshot {
 
 export interface AccountsPatch {
   upsert: DashboardAccount[];
+  /** Account IDs (legacy producers without id use email). */
   remove: string[];
-  /** Full email order, sent only when it changed. */
+  /** Full account-ID order, sent only when it changed. */
   order?: string[];
 }
 

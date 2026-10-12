@@ -71,7 +71,11 @@ Every change answers with the updated catalog, the same shape as `GET /api/catal
 | `PUT` | `/api/catalog/provider-order` | Body `{ "order": ["ollama", …] }`; providers left out follow in the default order |
 | `POST` | `/api/catalog/models/on` · `/off` | Body `{ "models": ["ollama/gpt-oss:20b", …] }` |
 | `POST` | `/api/catalog/new-models/on` · `/off` | Whether models a provider adds later turn on automatically |
-| `POST` | `/api/catalog/accounts/<email>/<provider>/on` · `/off` | Turn one provider on or off for one account |
+| `POST` | `/api/catalog/accounts/<accountId>/<provider>/on` · `/off` | Turn one provider on or off for one account |
+
+Use the account's `id` from `/api/status` or `/api/dashboard/snapshot` (`overview.accounts`) and URL-encode it as one path segment. Treat it as opaque: accounts with the same email can have different project or workspace identities. A legacy email still works when it identifies exactly one account. Unknown or stale targets, ambiguous emails, and accounts without the requested provider credential return `404` without changing any switch.
+
+Account provider switches are persisted by exact identity in the state repository and survive account reordering. Legacy email-keyed switches are restored only for a unique email. Credential or provider-list edits can change the account ID, so clients should fetch a fresh snapshot after those edits; reload restores saved switches only for matching identities. Refreshing a token for the same project or workspace preserves its identity.
 
 ### Virtual Key Management (requires PostgreSQL)
 
@@ -144,7 +148,7 @@ there is no shared-project fallback. Other `/v1internal:*` operations are reject
 Server-sent events for the dashboard. The first event is `snapshot` (the same body as `/api/dashboard/snapshot`). After that the server compares each new rotator state with the previous one and sends only what changed:
 
 - `overview` — the top-level overview sections that changed (routing health, breakers, controls, traffic, …)
-- `accounts` — `{ upsert, remove, order? }`: changed accounts, removed emails, and the new order when it changed
+- `accounts` — `{ upsert, remove, order? }`: changed accounts, removed account IDs, and the full account-ID order when it changed; legacy producers without `id` use emails
 - `requests` / `events` — entries that were not sent before, newest first, each with an increasing `id`
 
 Countdowns are sent as absolute timestamps (`nextRetryAt`, `nextRefillAt`, breaker `until`), so an idle rotator sends nothing but a keep-alive comment every 25 seconds. Use `/api/events` if you need the full status on every change.
