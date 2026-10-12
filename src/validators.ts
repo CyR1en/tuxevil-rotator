@@ -389,6 +389,7 @@ export interface MinimalProxyRequestBody {
 	requestType?: string;
 	userAgent?: string;
 	requestId?: string;
+	requestedModel?: string;
 	[key: string]: unknown;
 }
 
@@ -402,6 +403,7 @@ export function validateProxyRequestBody(value: unknown): ValidationResult<Minim
 	if (value.requestType !== undefined && typeof value.requestType !== "string") errors.push("body.requestType must be a string when provided");
 	if (value.userAgent !== undefined && typeof value.userAgent !== "string") errors.push("body.userAgent must be a string when provided");
 	if (value.requestId !== undefined && typeof value.requestId !== "string") errors.push("body.requestId must be a string when provided");
+	if (value.requestedModel !== undefined && typeof value.requestedModel !== "string") errors.push("body.requestedModel must be a string when provided");
 
 	return errors.length > 0 ? fail(errors) : ok(value as MinimalProxyRequestBody);
 }
