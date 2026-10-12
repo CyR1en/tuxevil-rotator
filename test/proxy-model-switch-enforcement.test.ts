@@ -28,12 +28,16 @@ let getProviderAdapter: typeof import("../src/providers/registry.js").getProvide
 let closeDb: typeof import("../src/db-store.js").closeDb;
 let stopVersionChecker: typeof import("../src/version-check.js").stopVersionChecker;
 let stopNotificationPoller: typeof import("../src/notification-poller.js").stopNotificationPoller;
+let openAIToAntigravityBody: typeof import("../src/providers/google-antigravity/translators.js").openAIToAntigravityBody;
+let setEffortRoutingOverride: typeof import("../src/types.js").setEffortRoutingOverride;
 let resetCatalog: () => void;
 
 type Rotator = InstanceType<typeof AccountRotator>;
 type Capture = { providerId: string; account: AccountRuntime; body: RequestBody };
 const GOOGLE = "google-antigravity";
 const MODEL = "gemini-3.8-flash-high";
+const EFFORT_ALIAS = "gemini-3.8-flash-low";
+const EFFORT_TARGET = "gemini-3.8-flash-medium";
 const captures: Capture[] = [];
 const rotators: Rotator[] = [];
 const servers: Server[] = [];
@@ -50,6 +54,8 @@ before(async () => {
   await db.initDb();
   ({ stopVersionChecker } = await import("../src/version-check.js"));
   ({ stopNotificationPoller } = await import("../src/notification-poller.js"));
+  ({ openAIToAntigravityBody } = await import("../src/providers/google-antigravity/translators.js"));
+  ({ setEffortRoutingOverride } = await import("../src/types.js"));
   const { dynamicCatalog } = await import("../src/providers/google-antigravity/dynamic-catalog.js");
   resetCatalog = () => dynamicCatalog.reset();
 });
@@ -83,6 +89,7 @@ afterEach(async () => {
   }
   stopVersionChecker();
   stopNotificationPoller();
+  setEffortRoutingOverride(null);
   resetCatalog();
   mock.restoreAll();
 });
@@ -181,6 +188,28 @@ function post(url: string, body: unknown): Promise<Response> {
   });
 }
 
+function translatedEffortRequest(): RequestBody {
+  setEffortRoutingOverride({
+    [EFFORT_ALIAS]: { defaultEffort: "medium", targets: { medium: EFFORT_TARGET } },
+  });
+  return openAIToAntigravityBody({
+    model: EFFORT_ALIAS,
+    messages: [{ role: "user", content: "hello" }],
+  });
+}
+
+function observeAdmission(rotator: Rotator): Promise<string | undefined> {
+  let onAdmission!: (model: string | undefined) => void;
+  const entered = new Promise<string | undefined>((resolve) => { onAdmission = resolve; });
+  const getActive = rotator.getActiveAccount.bind(rotator);
+  mock.method(rotator, "getActiveAccount", (...args: Parameters<Rotator["getActiveAccount"]>) => {
+    const pending = getActive(...args);
+    onAdmission(args[0]);
+    return pending;
+  });
+  return entered;
+}
+
 describe("Models switch enforcement at request admission and dispatch", () => {
   for (const { name, body, disabledId } of [
     { name: "requested model", body: requestBody(), disabledId: MODEL },
@@ -211,6 +240,127 @@ describe("Models switch enforcement at request admission and dispatch", () => {
       assertReleased(accounts);
     });
   }
+
+  it("rechecks a production-translated effort alias after queue admission", async () => {
+    const { rotator, accounts } = makeRotator();
+    const body = translatedEffortRequest();
+    assert.equal(body.model, EFFORT_TARGET);
+    assert.equal(body.catalogModel, EFFORT_TARGET);
+    assert.equal(body.displayModel, EFFORT_ALIAS);
+    const held = await rotator.getActiveAccount(body.model, undefined, GOOGLE);
+    assert.ok(held);
+    const pending = withRotation(rotator, body.model, {}, body, (response) => response.text());
+    assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
+    await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
+    rotator.finishRequest(held, "gemini");
+    const outcome = await pending;
+    assertOff(outcome);
+    if (!outcome.ok) assert.match(outcome.errorText, /gemini-3\.8-flash-low/);
+    assert.equal(captures.length, 0);
+    assertReleased(accounts);
+  });
+
+  it("rechecks a translated effort alias after token validation", async () => {
+    const { rotator, accounts } = makeRotator();
+    const body = translatedEffortRequest();
+    mock.method(getProviderAdapter(GOOGLE), "ensureValidToken", async (account: AccountRuntime) => {
+      if (account === accounts[0]) await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
+    });
+    const outcome = await withRotation(rotator, body.model, {}, body, (response) => response.text());
+    assertOff(outcome);
+    assert.equal(captures.length, 0);
+    assertReleased(accounts);
+  });
+
+  it("rechecks a translated effort alias before retrying after rotation", async () => {
+    const { rotator, accounts } = makeRotator({}, 2);
+    const body = translatedEffortRequest();
+    const rotate = rotator.rotateToNext.bind(rotator);
+    mock.method(rotator, "rotateToNext", async (...args: Parameters<Rotator["rotateToNext"]>) => {
+      await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
+      return rotate(...args);
+    });
+    mock.method(getProviderAdapter(GOOGLE), "forwardRequest", async (account: AccountRuntime, forwardedBody: RequestBody) => {
+      captures.push({ providerId: GOOGLE, account, body: forwardedBody });
+      return captures.length === 1
+        ? { response: new Response("upstream failed", { status: 500 }), endpoint: "mock://google" }
+        : successResponse();
+    });
+    const outcome = await withRotation(rotator, body.model, {}, body, (response) => response.text());
+    assertOff(outcome);
+    assert.equal(captures.length, 1);
+    assertReleased(accounts);
+  });
+
+  for (const { name, path, payload } of [
+    { name: "OpenAI", path: "/v1/chat/completions", payload: { model: EFFORT_ALIAS, messages: [{ role: "user", content: "hello" }] } },
+    { name: "Anthropic", path: "/v1/messages", payload: { model: EFFORT_ALIAS, max_tokens: 16, messages: [{ role: "user", content: "hello" }] } },
+    { name: "Responses", path: "/v1/responses", payload: { model: EFFORT_ALIAS, input: "hello", store: false } },
+  ]) {
+    it(`rejects a queued ${name} request when its translated effort alias is switched off`, async () => {
+      const { rotator, accounts } = makeRotator();
+      translatedEffortRequest();
+      const held = await rotator.getActiveAccount(EFFORT_TARGET, undefined, GOOGLE);
+      assert.ok(held);
+      const enteredAdmission = observeAdmission(rotator);
+      const base = await listenProxy(rotator);
+      const pendingResponse = post(`${base}${path}`, payload);
+      assert.equal(await enteredAdmission, EFFORT_TARGET, "the production handler must translate before admission");
+      assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
+      await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
+      rotator.finishRequest(held, "gemini");
+      const response = await pendingResponse;
+      const json = await response.json() as { error: { message: string } };
+      assert.equal(response.status, 404);
+      assert.match(json.error.message, /gemini-3\.8-flash-low.*turned off/);
+      assert.equal(captures.length, 0);
+      assertReleased(accounts);
+    });
+  }
+
+  it("continues serving an enabled production-translated effort alias", async () => {
+    const { rotator, accounts } = makeRotator();
+    const body = translatedEffortRequest();
+    const outcome = await withRotation(rotator, body.model, {}, body, (response) => response.text());
+    assert.equal(outcome.ok, true);
+    assert.equal(captures[0]?.body.model, EFFORT_TARGET);
+    assertReleased(accounts);
+  });
+
+  it("continues serving an enabled ordinary model alias", async () => {
+    const { rotator, accounts } = makeRotator();
+    const body = openAIToAntigravityBody({
+      model: "gemini-3.1-pro-high",
+      messages: [{ role: "user", content: "hello" }],
+    });
+    assert.equal(body.model, "gemini-pro-agent");
+    const outcome = await withRotation(rotator, body.model, {}, body, (response) => response.text());
+    assert.equal(outcome.ok, true);
+    assert.equal(captures[0]?.body.model, "gemini-pro-agent");
+    assertReleased(accounts);
+  });
+
+  it("checks the concrete auto selection while keeping auto as display metadata", async () => {
+    const { rotator, accounts } = makeRotator({
+      disabledModels: [`${GOOGLE}/auto`],
+      typesafeRouting: { enabled: false },
+    });
+    mock.method(rotator, "getAutoRoutingCandidateStatus", (model: string) => ({
+      available: model === EFFORT_TARGET,
+      operationalScore: 1,
+      poolKey: "gemini",
+    }));
+    const base = await listenProxy(rotator);
+    const response = await post(`${base}/v1/chat/completions`, {
+      model: "auto",
+      messages: [{ role: "user", content: "hello" }],
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(captures[0]?.body.displayModel, "auto");
+    assert.equal(captures[0]?.body.model, EFFORT_TARGET);
+    assertReleased(accounts);
+  });
 
   it("reports a provider switched off during queue admission as a model-off rejection", async () => {
     const { rotator, accounts } = makeRotator();

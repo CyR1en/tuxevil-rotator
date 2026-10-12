@@ -263,6 +263,8 @@ export interface RequestBody {
   userAgent?: string;
   requestId?: string;
   displayModel?: string;
+  /** Concrete model or effort alias before target selection; excludes the auto display label. */
+  requestedModel?: string;
   /** Catalog id after effort routing, before upstream aliasing (Antigravity). */
   catalogModel?: string;
   providerId?: string;
@@ -1257,6 +1259,7 @@ export async function withRotation<T>(
   })?.id;
   const requestIsOff = (selectedProviderId = providerId): boolean => isRequestOff(rotator, {
     model,
+    requestedModel: body.requestedModel,
     catalogModel: body.catalogModel,
     providerId: selectedProviderId,
   });
@@ -1672,6 +1675,7 @@ async function handleProxyRequest(
   body.providerId = providerId;
   const requestIsOff = (): boolean => isRequestOff(rotator, {
     model: body.model,
+    requestedModel: body.requestedModel,
     catalogModel: body.catalogModel,
     providerId,
   });
