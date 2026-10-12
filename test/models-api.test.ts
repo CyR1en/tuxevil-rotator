@@ -165,11 +165,21 @@ describe("Models page HTTP routes", () => {
     assert.equal(response.status, 400);
     assert.match(((await response.json()) as { error: { message: string } }).error.message, /OpenAI Codex/);
   });
-  it("checks native requests, including a provider named in the body", async () => {
+  it("rejects a native provider hint incompatible with its endpoint", async () => {
     await start(makeRotator({ disabledModels: ["ollama/big-pickle", "ollama/gemma4:31b"] }));
-    let response = await post("/v1internal:generateContent", {
+    const response = await post("/v1internal:generateContent", {
       model: "big-pickle",
       providerId: "ollama",
+      request: { contents: [] },
+    });
+    assert.equal(response.status, 400);
+    assert.match(((await response.json()) as { error: string }).error, /body\.providerId.*google-antigravity/);
+  });
+
+  it("answers requests for turned-off Google and Ollama native models with 404", async () => {
+    await start(makeRotator({ disabledModels: ["google-antigravity/gemini-3.8-flash-high", "ollama/gemma4:31b"] }));
+    let response = await post("/v1internal:generateContent", {
+      model: "gemini-3.8-flash-high",
       request: { contents: [] },
     });
     assert.equal(response.status, 404);
@@ -177,6 +187,7 @@ describe("Models page HTTP routes", () => {
 
     response = await post("/api/chat", { model: "gemma4:31b", messages: [{ role: "user", content: "hi" }] });
     assert.equal(response.status, 404);
+    assert.match(((await response.json()) as { error: string }).error, /turned off/);
   });
 
   it("answers a wrong method on a known catalog path with 405", async () => {
