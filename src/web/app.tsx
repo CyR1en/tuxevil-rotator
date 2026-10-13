@@ -30,6 +30,7 @@ import { AsyncButton, Button, Link, Spinner } from "./components/ui.js";
 import { OverviewPage } from "./pages/Overview.js";
 import { AccountsPage } from "./pages/Accounts.js";
 import { AccountDetail } from "./pages/AccountDetail.js";
+import { ModelsPage } from "./pages/Models.js";
 import { RequestsPage } from "./pages/Requests.js";
 import { UsagePage } from "./pages/Usage.js";
 import { KeysPage } from "./pages/Keys.js";
@@ -123,6 +124,9 @@ function Shell(): JSX.Element {
       break;
     case "accounts":
       page = <AccountsPage />;
+      break;
+    case "models":
+      page = <ModelsPage />;
       break;
     case "requests":
       page = <RequestsPage />;

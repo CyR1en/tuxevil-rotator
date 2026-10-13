@@ -96,7 +96,7 @@ export function buildPools(overview: DashboardOverview, now: number): ModelPool[
         };
         byKey.set(quota.modelKey, pool);
       }
-      if (isOutOfService(account)) continue;
+      if (isOutOfService(account) || account.disabledProviders?.includes(quotaProvider(quota))) continue;
       const diag = overview.routingDiagnostics[quota.modelKey];
       pool.members.push({
         account,

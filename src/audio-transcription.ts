@@ -14,6 +14,7 @@ import type { AccountRotator } from "./rotator.js";
 import { withRotation, type RequestBody } from "./proxy.js";
 import { extractRetryAfterSeconds } from "./compat.js";
 import { getModelSpec } from "./compat/model-specs.js";
+import { isRequestOff, modelOffMessage } from "./model-catalog.js";
 
 const audioLogger = logger.child("audio-transcription");
 const AUDIO_SESSION_START_TIMEOUT_MS = 10_000;
@@ -111,6 +112,8 @@ export function resolveMimeType(fileName: string, mimeType?: string): string {
 export interface TranscribeOptions {
   mimeType?: string;
   model?: string;
+  /** Model the client asked for (e.g. whisper-1), rechecked against the switches at dispatch. */
+  catalogModel?: string;
   prompt?: string;
   language?: string;
   signal?: AbortSignal;
@@ -272,6 +275,7 @@ export async function transcribeAudioWithRotator(
 
   const body: RequestBody = {
     model: targetModel,
+    catalogModel: options.catalogModel,
     project: "",
     request: {
       contents: [
@@ -935,6 +939,21 @@ export async function handleOpenAIAudioTranscriptions(
     sendAuthErrorResponse(res, modelAuth);
     return;
   }
+  if (rotator && isRequestOff(rotator, { model: executedModel, catalogModel: requestedModel ?? "whisper-1" })) {
+    logRequest("failure");
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: modelOffMessage(requestedModel ?? "whisper-1"),
+          type: "invalid_request_error",
+          param: "model",
+          code: "model_not_found",
+        },
+      }),
+    );
+    return;
+  }
   // Every executed request is accounted to the model that actually ran upstream.
   spendModel = executedModel;
   apiKeyHash = modelAuth.key?.tokenHash || (modelAuth.rawKey ? hashKey(modelAuth.rawKey) : apiKeyHash);
@@ -976,6 +995,7 @@ export async function handleOpenAIAudioTranscriptions(
         transcribedText = await transcribeAudioWithRotator(rotator, audioBuffer, {
           mimeType,
           model: executedModel,
+          catalogModel: requestedModel ?? "whisper-1",
           prompt,
           language,
           signal: transcriptionSignal,
@@ -983,6 +1003,10 @@ export async function handleOpenAIAudioTranscriptions(
       } catch (rotatorErr) {
         if (clientAbortController.signal.aborted || isRotatorTranscriptionTimeout(rotatorErr)) {
           throw rotatorErr;
+        }
+        // A switch turned off mid-request: the fallback would bypass it.
+        if (isRequestOff(rotator, { model: executedModel, catalogModel: requestedModel ?? "whisper-1" })) {
+          throw new AudioTranscriptionError(modelOffMessage(requestedModel ?? "whisper-1"), 404);
         }
         audioLogger.warn(
           `Rotator transcription failed: ${(rotatorErr as Error).message}, attempting Language Server fallback`,
@@ -1050,7 +1074,7 @@ export async function handleOpenAIAudioTranscriptions(
     logRequest("failure");
     audioLogger.error(`Transcription failed: ${error.message}`);
     const status =
-      err instanceof AudioTranscriptionError && [429, 502, 503, 504].includes(err.status) ? err.status : 500;
+      err instanceof AudioTranscriptionError && [404, 429, 502, 503, 504].includes(err.status) ? err.status : 500;
     let retrySec: number | null = null;
     if (err instanceof AudioTranscriptionError && (status === 429 || status === 503)) {
       retrySec = err.retryAfterMs
@@ -1066,8 +1090,8 @@ export async function handleOpenAIAudioTranscriptions(
         JSON.stringify({
           error: {
             message: `Transcription error: ${error.message}`,
-            type: status === 429 ? "rate_limit_error" : "api_error",
-            code: status === 429 ? "rate_limit_exceeded" : null,
+            type: status === 429 ? "rate_limit_error" : status === 404 ? "invalid_request_error" : "api_error",
+            code: status === 429 ? "rate_limit_exceeded" : status === 404 ? "model_not_found" : null,
             ...(retrySec ? { retry_after_seconds: retrySec } : {}),
           },
         }),
@@ -1684,6 +1708,7 @@ export function appendDeduplicated(existing: string, addition: string): string {
 export class RotatorAudioSession implements AudioTranscriptionSession {
   public sessionId: string;
   public model: string;
+  private catalogModel?: string;
   public continuous: boolean;
   public language?: string;
   private rotator: AccountRotator;
@@ -1725,6 +1750,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
     rotator: AccountRotator,
     options: {
       model?: string;
+      catalogModel?: string;
       continuous?: boolean;
       language?: string;
       onEvent?: (event: any) => void;
@@ -1734,6 +1760,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
     this.rotator = rotator;
     this.sessionId = `session-rotator-${Date.now()}-${crypto.randomUUID()}`;
     this.model = resolveAudioTranscriptionModel(options.model);
+    this.catalogModel = options.catalogModel;
     this.continuous = options.continuous ?? false;
     this.language = options.language;
     this.onEvent = options.onEvent || (() => {});
@@ -1892,6 +1919,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
       try {
         rawText = await transcribeAudioWithRotator(this.rotator, wav, {
           model: this.model,
+          catalogModel: this.catalogModel,
           language: this.language,
           timeoutMs: LIVE_ROTATOR_TRANSCRIPTION_TIMEOUT_MS,
           signal: segmentSignal,
@@ -1917,6 +1945,9 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
       } catch (rotatorErr) {
         if (this.abortController.signal.aborted || segmentDeadlineController.signal.aborted) {
           throw rotatorErr;
+        }
+        if (isRequestOff(this.rotator, { model: this.model, catalogModel: this.catalogModel })) {
+          throw new AudioTranscriptionError(modelOffMessage(this.catalogModel ?? this.model), 404);
         }
         audioLogger.warn(
           `[RotatorAudioSession] Segment #${item.seqId} rotator transcription failed: ${(rotatorErr as Error)?.message || rotatorErr}, attempting Language Server fallback`,
@@ -2184,7 +2215,7 @@ async function authorizeClientModel(
 function createClientSession(
   client: AudioWsClient,
   model: string,
-  options: { preCursorText?: string; postCursorText?: string; continuous?: boolean; language?: string },
+  options: { catalogModel?: string; preCursorText?: string; postCursorText?: string; continuous?: boolean; language?: string },
 ): AudioTranscriptionSession {
   client.tStartTime = Date.now();
   client.tFirstAntigravity = null;
@@ -2270,6 +2301,14 @@ async function handleClientCommand(client: AudioWsClient, cmd: any): Promise<voi
     const requested = cmd.antigravityModel || cmd.model ? String(cmd.antigravityModel || cmd.model) : undefined;
     const model = resolveClientExecutedModel(client, requested);
     if (!(await authorizeClientModel(client, model, requested))) return;
+    if (
+      client.rotator &&
+      typeof client.rotator.getActiveAccount === "function" &&
+      isRequestOff(client.rotator, { model, catalogModel: requested ?? "whisper-1" })
+    ) {
+      client.send({ type: "antigravity_error", event: "error", message: modelOffMessage(requested ?? model) });
+      return;
+    }
     if (client.antigravity) {
       finishClientSpend(client, "success");
       destroyClientSession(client);
@@ -2282,6 +2321,7 @@ async function handleClientCommand(client: AudioWsClient, cmd: any): Promise<voi
     });
 
     const session = createClientSession(client, model, {
+      catalogModel: requested ?? "whisper-1",
       preCursorText: cmd.preCursorText || "",
       postCursorText: cmd.postCursorText || "",
       continuous: cmd.continuous ?? false,

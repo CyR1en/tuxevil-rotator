@@ -27,6 +27,8 @@ else delete process.env.DATABASE_URL;
 
 const { setPersistedAdminToken } = await import("../src/admin-auth.js");
 const { startProxy } = await import("../src/proxy.js");
+const modelCatalog = await import("../src/model-catalog.js");
+const { getModelCatalogRevision } = await import("../src/model-catalog-revision.js");
 setPersistedAdminToken(TOKEN || null);
 
 const M = 60_000;
@@ -100,6 +102,7 @@ interface MockAccount {
   healthScore: number;
   allowFreshWindowStartsOverride: boolean;
   dailyRequestCount: number;
+  disabledProviders?: string[];
 }
 
 const accounts: MockAccount[] = Array.from({ length: count }, (_, i) => {
@@ -237,7 +240,10 @@ function activeFor(account: MockAccount): string[] {
 
 function getStatus() {
   const t = now();
-  const statusOf = (a: MockAccount) => (a.status === "ready" && activeFor(a).length > 0 ? "active" : a.status);
+  const allOff = (a: MockAccount) =>
+    a.provider.split("+").every((id) => a.disabledProviders?.includes(id) || modelCatalog.isProviderTurnedOff(modelConfig(), id));
+  const statusOf = (a: MockAccount) =>
+    a.status === "flagged" || a.status === "disabled" ? a.status : allOff(a) ? "off" : a.status === "ready" && activeFor(a).length > 0 ? "active" : a.status;
   const accountStatuses = accounts.map((a) => ({
     email: a.email,
     label: a.label,
@@ -263,6 +269,7 @@ function getStatus() {
     healthScore: a.healthScore,
     tokenBucket: { enabled: false, tokens: 5, capacity: 5, nextRefillInMs: 0 },
     allowFreshWindowStartsOverride: a.allowFreshWindowStartsOverride,
+    ...(a.disabledProviders?.length ? { disabledProviders: a.disabledProviders } : {}),
     effectiveFreshWindowStartsAllowed: controls.allowFreshWindowStarts || a.allowFreshWindowStartsOverride,
   }));
   const pools = [...new Set(accounts.flatMap((a) => a.quota.map((q) => q.modelKey)))];
@@ -313,6 +320,7 @@ function getStatus() {
   const totals = [...minutes, ...hours].reduce((acc, b) => ({ input: acc.input + b.inputTokens, output: acc.output + b.outputTokens, requests: acc.requests + b.requests }), { input: 0, output: 0, requests: 0 });
   return {
     version: "3.10.0",
+    modelCatalogRevision: getModelCatalogRevision(rotator),
     proxyPort: PORT,
     requestsPerRotation: config.requestsPerRotation,
     maxConcurrentRequestsPerAccount: config.maxConcurrentRequestsPerAccount,
@@ -371,8 +379,51 @@ let onChange: () => void = () => {};
 const byEmail = (email: string) => accounts.find((a) => a.email === email);
 const touch = () => onChange();
 
+// Live catalogs the real rotator discovers at runtime.
+const OLLAMA_TAGS = ["glm-5.1", "gpt-oss:120b", "gpt-oss:20b", "kimi-k3", "gemma4:31b", "nemotron-3-ultra"];
+const CODEX_IDS = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const modelConfig = () => config as never;
+const applyModelPatch = (patch: Record<string, unknown>) => {
+  config = { ...config, ...patch };
+  touch();
+};
+
 const rotator = {
   saveState: () => Promise.resolve(),
+  getConfig: modelConfig,
+  getOllamaModels: () => [...OLLAMA_TAGS],
+  getCodexModels: () => [...CODEX_IDS],
+  hasActiveProvider: (providerId: string) =>
+    !modelCatalog.isProviderTurnedOff(modelConfig(), providerId) &&
+    accounts.some((a) => servable(a) && a.provider.split("+").includes(providerId) && !a.disabledProviders?.includes(providerId)),
+  getModelCatalog: () => modelCatalog.listCatalogModels(rotator),
+  refreshModelCatalogs: async () => {},
+  setProviderEnabled: async (providerId: string, enabled: boolean) => {
+    if (!modelCatalog.DEFAULT_PROVIDER_ORDER.includes(providerId)) return false;
+    applyModelPatch(modelCatalog.setProviderTurnedOff(modelConfig(), providerId, !enabled));
+    return true;
+  },
+  setProviderOrder: async (order: string[]) => {
+    if (!order.every((id) => modelCatalog.DEFAULT_PROVIDER_ORDER.includes(id))) return false;
+    applyModelPatch({ providerOrder: modelCatalog.resolveProviderOrder(order) });
+    return true;
+  },
+  setModelsEnabled: async (keys: string[], enabled: boolean) => {
+    if (keys.length === 0 || !keys.every((key) => modelCatalog.parseModelKey(key))) return false;
+    applyModelPatch(modelCatalog.setModelsTurnedOff(modelConfig(), keys, !enabled));
+    return true;
+  },
+  setAutoEnableNewModels: async (enabled: boolean) => {
+    applyModelPatch(modelCatalog.setAutoEnableNewModels(rotator, enabled));
+  },
+  setAccountProviderEnabled: async (email: string, providerId: string, enabled: boolean) => {
+    const a = byEmail(email);
+    if (!a || !a.provider.split("+").includes(providerId)) return false;
+    const rest = (a.disabledProviders ?? []).filter((id) => id !== providerId);
+    a.disabledProviders = enabled ? rest : [...rest, providerId];
+    touch();
+    return true;
+  },
   getStatus,
   getTokenUsage: () => getStatus().tokenUsage,
   getLatencyStats: () => getStatus().latencyStats,

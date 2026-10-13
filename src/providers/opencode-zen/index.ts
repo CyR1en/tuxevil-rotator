@@ -1,11 +1,11 @@
 // OpenCode Zen provider adapter.
 
-import type { ProviderAdapter, ProviderFeatures } from "../adapter.js";
+import type { ProviderAdapter, ProviderFeatures, ProviderModel } from "../adapter.js";
 import { runLogin } from "./login.js";
 import { getOpenCodeZenApiKey, validateCredentials, OPENCODE_ZEN_PROVIDER_ID } from "./credentials.js";
 import { forwardRequest, OpenCodeZenSseAccumulator, getBenchmarkSpec } from "./forward.js";
 import { fetchOpenCodeZenQuota } from "./quota.js";
-import { isOpenCodeZenModel } from "./catalog.js";
+import { isOpenCodeZenModel, OPENCODE_ZEN_CATALOG } from "./catalog.js";
 import type { AccountRuntime } from "../../types.js";
 
 const OPENCODE_ZEN_TIER_RANKING = {
@@ -55,6 +55,15 @@ export const opencodeZenAdapter: ProviderAdapter = {
 
   getKickstartModelForPool(): string | undefined {
     return undefined;
+  },
+
+  listModels(): ProviderModel[] {
+    return OPENCODE_ZEN_CATALOG.map((model) => ({
+      id: model.id,
+      contextWindow: model.contextWindow,
+      quotaPool: OPENCODE_ZEN_PROVIDER_ID,
+      source: "catalog",
+    }));
   },
 
   ownsModel(model: string): boolean {

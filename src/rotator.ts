@@ -60,10 +60,24 @@ import {
   primaryProviderId,
   findProviderForModel,
   getProviderIdForPoolKey,
+  isKnownProvider,
   isOllamaQuotaPoolKey,
   PROVIDER_ORDER,
 } from "./providers/registry.js";
 import type { QuotaFetchContext } from "./providers/adapter.js";
+import {
+  isProviderModelOff,
+  isProviderTurnedOff,
+  listCatalogModels,
+  parseModelKey,
+  resolveProviderOrder,
+  routedProviderId,
+  setAutoEnableNewModels as autoEnablePatch,
+  setModelsTurnedOff,
+  setProviderTurnedOff,
+  type CatalogModel,
+} from "./model-catalog.js";
+import { getModelCatalogRevision } from "./model-catalog-revision.js";
 import { logger } from "./logger.js";
 import { getAccountProxyDispatcher } from "./providers/proxy-dispatcher.js";
 import {
@@ -280,11 +294,21 @@ export class AccountRotator {
   }
 
   hasActiveProvider(providerId: string): boolean {
+    if (isProviderTurnedOff(this.config, providerId)) return false;
     return this.accounts.some(
       (account) =>
         !account.disabled &&
         !account.flagged &&
-        hasCredential(account.config, providerId),
+        hasCredential(account.config, providerId) &&
+        !account.disabledProviders?.includes(providerId),
+    );
+  }
+
+  /** Turned off on the Models page, for every account or for this one. */
+  isProviderOffForAccount(account: AccountRuntime, providerId: string): boolean {
+    return (
+      isProviderTurnedOff(this.config, providerId) ||
+      (account.disabledProviders?.includes(providerId) ?? false)
     );
   }
 
@@ -624,6 +648,11 @@ export class AccountRotator {
       this.provider429Events = state.safety?.provider429Events ?? [];
       this.rollDailySafetyIfNeeded(Date.now());
 
+      const emailCounts = new Map<string, number>();
+      for (const account of this.accounts) {
+        const email = account.config.email;
+        emailCounts.set(email, (emailCounts.get(email) ?? 0) + 1);
+      }
       for (const account of this.accounts) {
         const saved = state.accounts[account.config.email];
         if (saved) {
@@ -645,6 +674,13 @@ export class AccountRotator {
           account.allowFreshWindowStartsOverride =
             saved.allowFreshWindowStartsOverride ?? false;
         }
+        // A legacy email switch cannot identify one of several project/workspace
+        // accounts. New state is authoritative so changed identities do not
+        // inherit switches from an older credential with the same email.
+        const disabledProviders = state.disabledProvidersByAccount
+          ? state.disabledProvidersByAccount[getAccountIdentity(account)]
+          : emailCounts.get(account.config.email) === 1 ? saved?.disabledProviders : undefined;
+        if (disabledProviders?.length) account.disabledProviders = [...disabledProviders];
       }
       this.migratePersistedQuotaStateKeys();
       // Cap explicit generic/non-Google cooldowns to 30 min. An unresolved key
@@ -763,6 +799,7 @@ export class AccountRotator {
       }
     }
 
+    const disabledProvidersByAccount: Record<string, string[]> = {};
     const state: PersistedState = {
       dynamicModelQuotaPools: dynamicCatalog.getDiscoveredQuotaPools(),
       dynamicModelOwnership: dynamicCatalog.getPersistedModelOwnership(
@@ -795,9 +832,11 @@ export class AccountRotator {
         modelBreakers: { ...this.modelBreakers },
         provider429Events: [...this.provider429Events],
       },
+      disabledProvidersByAccount,
       accounts: {},
     };
     for (const account of this.accounts) {
+      disabledProvidersByAccount[getAccountIdentity(account)] = [...(account.disabledProviders ?? [])];
       state.accounts[account.config.email] = {
         totalRequests: account.totalRequests,
         dailyRequestCount: account.dailyRequestCount,
@@ -1551,6 +1590,10 @@ export class AccountRotator {
       (account.cooldownsByModel.__default__ ?? 0) > now;
     if (account.flagged) return "flagged";
     if (account.disabled) return "disabled";
+    const providers = (account.config.credentials ?? []).map((credential) => credential.provider);
+    if (providers.length > 0 && providers.every((id) => this.isProviderOffForAccount(account, id))) {
+      return "off";
+    }
     if (account.consecutiveErrors > 0 && !account.disabled) return "error";
     // Pool cooldowns stay visible in cooldownsByModel but must not make the
     // whole account unavailable for unrelated quota pools.
@@ -1883,6 +1926,7 @@ export class AccountRotator {
             );
 
       diagnostics.push({
+        id: getAccountIdentity(account),
         email: account.config.email,
         label: account.config.label || account.config.email,
         status,
@@ -3424,6 +3468,100 @@ export class AccountRotator {
     return true;
   }
 
+  // ── Models page ─────────────────────────────────────────────────────────
+
+  /** Every provider's models, in provider order, with whether each is served. */
+  getModelCatalog(): CatalogModel[] {
+    return listCatalogModels(this);
+  }
+
+  async setProviderEnabled(providerId: string, enabled: boolean): Promise<boolean> {
+    if (!isKnownProvider(providerId)) return false;
+    if (await this.updateModelSettings(setProviderTurnedOff(this.config, providerId, !enabled))) {
+      this.log(
+        `Operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"}`,
+        "warn",
+      );
+    }
+    return true;
+  }
+
+  async setProviderOrder(order: string[]): Promise<boolean> {
+    if (!order.every(isKnownProvider)) return false;
+    const next = resolveProviderOrder(order);
+    if (await this.updateModelSettings({ providerOrder: next })) {
+      this.log(`Operator set the provider order: ${next.join(", ")}`);
+    }
+    return true;
+  }
+
+  /** Keys are "<provider>/<model>". */
+  async setModelsEnabled(keys: string[], enabled: boolean): Promise<boolean> {
+    if (keys.length === 0 || !keys.every((key) => parseModelKey(key))) return false;
+    if (await this.updateModelSettings(setModelsTurnedOff(this.config, keys, !enabled))) {
+      this.log(`Operator turned ${enabled ? "on" : "off"} ${keys.join(", ")}`, "warn");
+    }
+    return true;
+  }
+
+  async setAutoEnableNewModels(enabled: boolean): Promise<void> {
+    // The review snapshot records what providers list now; load the live
+    // lists first so a provider whose list has not loaded is not held back.
+    if (!enabled && this.config.autoEnableNewModels !== false) {
+      await this.refreshModelCatalogs();
+    }
+    if (await this.updateModelSettings(autoEnablePatch(this, enabled))) {
+      this.log(
+        enabled
+          ? "Operator set new models to turn on automatically"
+          : "Operator set new models to stay off until reviewed",
+      );
+    }
+  }
+
+  /** Exact identity target; a legacy email is accepted only if it names one account. */
+  async setAccountProviderEnabled(
+    accountId: string,
+    providerId: string,
+    enabled: boolean,
+  ): Promise<boolean> {
+    let matches = this.accounts.filter((a) => getAccountIdentity(a) === accountId);
+    if (matches.length === 0) matches = this.accounts.filter((a) => a.config.email === accountId);
+    if (matches.length !== 1) return false;
+    const account = matches[0];
+    if (!hasCredential(account.config, providerId)) return false;
+    const current = account.disabledProviders ?? [];
+    if (current.includes(providerId) === !enabled) return true;
+    const rest = current.filter((id) => id !== providerId);
+    const next = enabled ? rest : [...rest, providerId];
+    account.disabledProviders = next.length > 0 ? next : undefined;
+    await this.saveState();
+    this.log(
+      `${account.config.email}: operator turned ${getProviderAdapter(providerId).displayName} ${enabled ? "on" : "off"} for this account`,
+      "warn",
+    );
+    this.requestWaiterDrain();
+    return true;
+  }
+
+  /** Re-read the Ollama and Codex model lists now instead of on the next poll. */
+  async refreshModelCatalogs(): Promise<void> {
+    this.lastOllamaCatalogFetch = 0;
+    await Promise.all([this.refreshOllamaCatalogOnce(), this.primeCodexCatalog()]);
+  }
+
+  /** Applies a settings patch; returns false (and saves nothing) when nothing changes. */
+  private async updateModelSettings(patch: Partial<Config>): Promise<boolean> {
+    const changed = (Object.keys(patch) as Array<keyof Config>).some(
+      (key) => JSON.stringify(patch[key]) !== JSON.stringify(this.config[key]),
+    );
+    if (!changed) return false;
+    this.config = { ...this.config, ...patch };
+    await saveAccountsConfig(this.config);
+    this.requestWaiterDrain();
+    return true;
+  }
+
   async setAutoWarmup(enabled: boolean): Promise<boolean> {
     if (this.autoWarmupEnabled === enabled) return false;
     this.autoWarmupEnabled = enabled;
@@ -3692,6 +3830,7 @@ export class AccountRotator {
     if (!this.isAvailable(account, now)) return false;
     const providerId = getProviderIdForPoolKey(modelKey);
     if (account.invalidProviders?.[providerId]) return false;
+    if (this.isProviderOffForAccount(account, providerId)) return false;
     if ((account.providerCooldowns?.[providerId] ?? 0) > now) return false;
     const modelCooldown =
       account.cooldownsByModel[this.resolveQuotaStateKey(modelKey)] ?? 0;
@@ -3805,6 +3944,18 @@ export class AccountRotator {
         detail: `${providerId} credential is invalid; re-authentication required`,
       };
     }
+    if (isProviderTurnedOff(this.config, providerId)) {
+      return {
+        reason: "provider-ineligible",
+        detail: `${getProviderAdapter(providerId).displayName} is turned off on the Models page`,
+      };
+    }
+    if (account.disabledProviders?.includes(providerId)) {
+      return {
+        reason: "provider-ineligible",
+        detail: `${getProviderAdapter(providerId).displayName} is turned off for this account`,
+      };
+    }
     if (
       providerId === "openai-codex" &&
       !getProviderAdapter(providerId).hasValidCredentials(account)
@@ -3839,19 +3990,25 @@ export class AccountRotator {
 
   private resolvePoolKeyForModel(model: string, providerId?: string): string | null {
     const normalizedModel = model.trim().toLowerCase();
-    if (
-      !isStaticAntigravityModel(model) &&
-      dynamicCatalog.wasDiscovered(model)
-    ) return normalizedModel;
-    if (this.hasRelevantQuotaStateForModel(normalizedModel, Date.now())) {
-      return normalizedModel;
+    // Decide the provider first: the Google pool shortcuts below must not
+    // capture a request that is pinned or routed to another provider.
+    const provider = providerId ?? routedProviderId(this, model);
+    if (!provider || provider === DEFAULT_PROVIDER) {
+      if (
+        !isStaticAntigravityModel(model) &&
+        dynamicCatalog.wasDiscovered(model)
+      ) return normalizedModel;
+      if (this.hasRelevantQuotaStateForModel(normalizedModel, Date.now())) {
+        return normalizedModel;
+      }
     }
     const context = {
       ollamaModels: this.ollamaModels,
       codexModels: this.codexModels,
-      providerId,
     };
-    const adapter = findProviderForModel(model, context);
+    const adapter = provider
+      ? getProviderAdapter(provider)
+      : findProviderForModel(model, context);
     if (adapter?.getPoolKey) {
       return adapter.getPoolKey(model);
     }
@@ -3948,7 +4105,8 @@ export class AccountRotator {
       const candidateProviderId = providerId ?? getProviderIdForPoolKey(modelKey);
       if (
         !hasCredential(account.config, candidateProviderId) ||
-        account.invalidProviders?.[candidateProviderId]
+        account.invalidProviders?.[candidateProviderId] ||
+        this.isProviderOffForAccount(account, candidateProviderId)
       ) {
         continue;
       }
@@ -4022,6 +4180,7 @@ export class AccountRotator {
       const tokenBucket = this.getTokenBucketSnapshot(a, now);
 
       return {
+        id: getAccountIdentity(a),
         email: a.config.email,
         provider:
           (a.config.credentials ?? []).map((c) => c.provider).join("+") ||
@@ -4045,6 +4204,9 @@ export class AccountRotator {
         hasValidToken: !!(a.accessToken && a.tokenExpires > now),
         invalidProviders: a.invalidProviders,
         providerCooldowns: a.providerCooldowns,
+        ...(a.disabledProviders?.length
+          ? { disabledProviders: [...a.disabledProviders] }
+          : {}),
         quota: a.quota,
         inFlightRequests: a.inFlightRequests,
         inFlightByModel: a.inFlightByModel,
@@ -4151,6 +4313,7 @@ export class AccountRotator {
       hostedOAuthConfigured: isHostedOAuthConfigured(),
       ollamaModels: this.getOllamaModels(),
       codexModels: this.getCodexModels(),
+      modelCatalogRevision: getModelCatalogRevision(this),
       modelTierAccess: this.accounts.some((a) =>
         hasCredential(a.config, "ollama"),
       )
@@ -4483,6 +4646,7 @@ export class AccountRotator {
     return this.accounts.find((a) => a.config.email === email);
   }
 
+  /** In-service accounts; benchmarkAccount skips providers turned off on the Models page. */
   public getBenchmarkAccounts(): AccountRuntime[] {
     return this.accounts.filter((account) => !account.disabled && !account.flagged);
   }
@@ -4716,6 +4880,22 @@ export class AccountRotator {
         status: 409,
         upstreamModel: "",
         error: "quota pool has no configured kickstart provider",
+      };
+    }
+    if (this.isProviderOffForAccount(account, target.providerId)) {
+      return {
+        ok: false,
+        status: 409,
+        upstreamModel: "",
+        error: "provider turned off on the Models page",
+      };
+    }
+    if (isProviderModelOff(this, target.providerId, target.upstreamModel)) {
+      return {
+        ok: false,
+        status: 409,
+        upstreamModel: target.upstreamModel,
+        error: "kickstart model turned off on the Models page",
       };
     }
 

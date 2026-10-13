@@ -5,12 +5,14 @@ import { computed, signal } from "@preact/signals";
 
 export const BASE = "/dashboard";
 
-export type PageId = "overview" | "accounts" | "requests" | "usage" | "keys" | "settings";
+export type PageId = "overview" | "accounts" | "models" | "requests" | "usage" | "keys" | "settings";
 
 export interface RouteMatch {
   page: PageId | "not-found";
   /** Email of the account whose drawer is open. */
   account: string | null;
+  /** Id of the provider whose drawer is open on the Models page. */
+  provider: string | null;
 }
 
 interface LocationState {
@@ -28,25 +30,25 @@ window.addEventListener("popstate", () => {
   location.value = readLocation();
 });
 
+function decodeSegment(segment: string | undefined): string | null {
+  if (!segment) return null;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function matchRoute(path: string): RouteMatch {
   const rest = path.replace(/\/+$/, "").slice(BASE.length).split("/").filter(Boolean);
   const [head, second] = rest;
-  if (!head) return { page: "overview", account: null };
-  if (head === "accounts") {
-    let account: string | null = null;
-    if (second) {
-      try {
-        account = decodeURIComponent(second);
-      } catch {
-        account = second;
-      }
-    }
-    return { page: "accounts", account };
-  }
+  if (!head) return { page: "overview", account: null, provider: null };
+  if (head === "accounts") return { page: "accounts", account: decodeSegment(second), provider: null };
+  if (head === "models") return { page: "models", account: null, provider: decodeSegment(second) };
   if (head === "requests" || head === "usage" || head === "keys" || head === "settings") {
-    return { page: head, account: null };
+    return { page: head, account: null, provider: null };
   }
-  return { page: "not-found", account: null };
+  return { page: "not-found", account: null, provider: null };
 }
 
 export const route = computed(() => matchRoute(location.value.path));
@@ -59,7 +61,8 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
   const pathChanged = target.pathname !== window.location.pathname;
   window.history[options.replace ? "replaceState" : "pushState"](null, "", next);
   location.value = readLocation();
-  if (pathChanged && !matchRoute(target.pathname).account) {
+  const match = matchRoute(target.pathname);
+  if (pathChanged && !match.account && !match.provider) {
     // Pages scroll inside the canvas, not the window.
     document.getElementById("main")?.scrollTo(0, 0);
     window.scrollTo(0, 0);
@@ -79,6 +82,11 @@ export function setQuery(params: Record<string, string | null>, options: { repla
 
 export function accountPath(email: string): string {
   return `${BASE}/accounts/${encodeURIComponent(email)}`;
+}
+
+export function providerPath(providerId: string): string {
+  const search = route.value.page === "models" ? location.value.search : "";
+  return `${BASE}/models/${encodeURIComponent(providerId)}${search}`;
 }
 
 /** Legacy routes from the old dashboard. */

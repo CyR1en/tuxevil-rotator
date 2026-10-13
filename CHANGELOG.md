@@ -2,14 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Models page**: a new dashboard page at `/dashboard/models` to manage connected providers and the models they serve.
+  - Turn a provider off without signing its accounts out, turn it off for one account only, or turn individual models off. Models that are off leave `/v1/models` and `model: "auto"`, and requests for them get `404 model_not_found`.
+  - Set the provider order that decides who serves a model id more than one provider lists.
+  - Optionally hold models a provider adds later until you review them.
+  - Settings are saved as `providerOrder`, `disabledProviders`, `disabledModels`, `autoEnableNewModels` and `reviewedModels` in the configuration file; per-account switches are kept with the account's state. New `/api/catalog` admin endpoints back the page.
+  - The switches also cover requests that reach a model through an alias or effort routing, native `/v1internal` and `/api/chat` requests, audio transcription (with no Language Server fallback around them), benchmarks and warm-up requests.
+  - Accounts with every provider turned off show a new **Off** status instead of **Ready**.
+
+### Changed
+
+- **One model-to-provider rule**: the proxy, the rotator and the OpenAI, Anthropic and Gemini endpoints now share one rule for which provider serves a model. Each provider lists its models, and ids no provider lists keep the old checks, so routing is unchanged by default.
+  - An Ollama model whose name ends in `-free` now goes to Ollama instead of OpenCode Zen when Zen does not list it.
+  - `/v1/models` lists an id that more than one provider serves once, under the provider its requests go to.
+  - `/v1/messages` answers a Codex model with `400` and a pointer to `/v1/chat/completions` and `/v1/responses`, instead of sending it to Codex in the wrong format.
+
 ### Improved
 
 - **Codex authentication visibility**: Rejected Codex credentials now appear in the dashboard's Needs you list and the Accounts Needs attention filter, with a direct link to the affected account.
 
 ### Fixed
 
+- **Dashboard dev server**: `npm run dashboard:dev` no longer crashes on `GET /v1/models`.
+- **Settings writes**: writes to one settings key now run in order, so quick successive changes can no longer leave an older configuration or state on disk.
 - **Ollama quota polling**: Read remaining credits and renewal dates from `/api/balance` instead of treating the consumption histogram at `/api/usage` as quota data. Overview and account details show actual credit balances, invalid responses preserve prior quotas, and purchased credits remain routable after the included balance runs out.
-
 - **Codex reauthentication state**: A successful Codex login now clears the previous provider rejection and cached Codex access token, so reauthenticated accounts leave Needs attention immediately.
 
 ## [4.0.0] - 2026-10-05

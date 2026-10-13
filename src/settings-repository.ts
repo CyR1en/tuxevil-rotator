@@ -25,6 +25,26 @@ const { Pool } = pg;
  * JSON-serialized objects). Both implementations guarantee that `get()`
  * always returns the latest value set via `set()` (in-process consistency).
  */
+/**
+ * Runs writes for one key one at a time. Each write persists the newest cached
+ * value when it runs, so an older write can never land after a newer one (for
+ * example two quick toggles whose disk backups finish out of order).
+ */
+class KeyedWriteQueue {
+  private tails = new Map<string, Promise<void>>();
+
+  run(key: string, write: () => Promise<void>): Promise<void> {
+    const previous = this.tails.get(key) ?? Promise.resolve();
+    const next = previous.then(write);
+    const tail = next.catch(() => {});
+    this.tails.set(key, tail);
+    void tail.then(() => {
+      if (this.tails.get(key) === tail) this.tails.delete(key);
+    });
+    return next;
+  }
+}
+
 export interface ISettingsRepository {
   /** Initialize the repository (create table / load from disk) */
   init(): Promise<void>;
@@ -89,6 +109,7 @@ interface PendingWrite {
 export class PostgresSettingsRepository implements ISettingsRepository {
   private pool: pg.Pool | null = null;
   private cache = new Map<string, string>();
+  private writes = new KeyedWriteQueue();
   private initialized = false;
   private pendingRetries = new Map<string, PendingWrite>();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -174,23 +195,27 @@ export class PostgresSettingsRepository implements ISettingsRepository {
 
   async set(key: string, value: string): Promise<void> {
     this.cache.set(key, value);
-    if (this.pool) {
+    if (!this.pool) return;
+    await this.writes.run(key, async () => {
+      const pool = this.pool;
+      const latest = this.cache.get(key) ?? value;
+      if (!pool) return;
       try {
         // Account changes must be durable before the API reports success.
         // A background-only write could be lost when the service restarts.
-        await this.pool.query(
+        await pool.query(
           `INSERT INTO rotator_settings (key, value, updated_at)
             VALUES ($1, $2, CURRENT_TIMESTAMP)
             ON CONFLICT (key) DO UPDATE
             SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
-          [key, value],
+          [key, latest],
         );
       } catch (err) {
         console.error(`Failed to save ${key} to database: ${err}`);
-        this.enqueueRetry(key, value);
+        this.enqueueRetry(key, latest);
         throw err;
       }
-    }
+    });
   }
 
   private enqueueRetry(key: string, value: string): void {
@@ -274,6 +299,7 @@ export class PostgresSettingsRepository implements ISettingsRepository {
 
 export class FileSettingsRepository implements ISettingsRepository {
   private cache = new Map<string, string>();
+  private writes = new KeyedWriteQueue();
 
   async init(): Promise<void> {
     // Pre-load all known keys from their disk files into cache
@@ -299,7 +325,12 @@ export class FileSettingsRepository implements ISettingsRepository {
     // Persist to disk
     const path = diskPath(key);
     if (!path) return;
+    await this.writes.run(key, () => this.writeToDisk(key, path));
+  }
 
+  private async writeToDisk(key: string, path: string): Promise<void> {
+    const value = this.cache.get(key);
+    if (value === undefined) return;
     const spec = DISK_FILES[key];
     try {
       if (spec?.backup) {
