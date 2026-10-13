@@ -27,6 +27,8 @@ function catalog(ollama = true, zen = true, routed = "opencode-zen"): ModelCatal
       source: "catalog", offReason: null, modelSwitch: "on", routed: providerId === routed,
     })),
     autoEnableNewModels: true,
+    effortRoutes: [],
+    effortSuggestions: [],
   };
 }
 

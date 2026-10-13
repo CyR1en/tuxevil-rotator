@@ -350,7 +350,7 @@ Remap model names to upstream model names via `modelAliases` in `accounts.json`:
 
 ## Effort-Based Model Routing
 
-Route a client-facing alias model (such as `gemini-3.8-flash`) to concrete Antigravity target models based on the request's `reasoning_effort` via `effortRouting` in `accounts.json`:
+Route a client-facing alias model (such as `gemini-3.8-flash`) to concrete Antigravity target models based on the effort a request asks for. Set up aliases from the **Effort routing** panel on the dashboard's [Models page](dashboard.md#models), which suggests model families that have effort variants, or write `effortRouting` in `accounts.json`:
 
 ```json
 {
@@ -370,8 +370,18 @@ Route a client-facing alias model (such as `gemini-3.8-flash`) to concrete Antig
 ### Matching and Default Semantics
 
 - **Opt-in**: if `effortRouting` is absent, `null`, or `{}`, no effort routing occurs and models behave as standard.
+- **Applies immediately**: changes saved from the dashboard, whether on the Models page or in the Settings configuration editor, apply to new requests without a restart. This also holds for `modelAliases` and `modelSpecs`.
 - **Alias matching**: client request models match configured aliases case-insensitively.
-- **Effort selection**: requests with a recognized effort value (matched case-insensitively against `targets` keys) dispatch to the mapped concrete target. Requests without effort, with empty/unrecognized effort, or from surfaces that do not pass effort (such as `/v1/messages`) route to `defaultEffort` (defaults to `"medium"` if omitted). The effective default effort must exist in `targets`.
+- **Effort selection**: requests with a recognized effort value (matched case-insensitively against `targets` keys) dispatch to the mapped concrete target. Requests without effort, or with an empty or unmapped one, route to `defaultEffort` (defaults to `"medium"` if omitted). The effective default effort must exist in `targets`. Keys are usually the standard levels `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, but any name works.
+- **Where the effort comes from**:
+
+  | Endpoint | Effort |
+  |---|---|
+  | `/v1/chat/completions` | `reasoning_effort` |
+  | `/v1/responses` | `reasoning.effort` |
+  | `/v1/messages` | `output_config.effort` (the latest per-message one, then the top-level one). Without it, `thinking` decides: `budget_tokens` under 4,000 asks for `low`, 4,000 to 15,999 for `medium`, and 16,000 or more for `high`; `"type": "disabled"` asks for `low`. Adaptive or absent thinking uses the default |
+
+- **Dashboard checks**: an alias created or renamed on the Models page cannot reuse an ID a provider already lists or an existing `modelAliases` entry. Targets must be Google Antigravity models the catalog lists.
 - **Precedence**: `effortRouting` takes precedence for its configured alias names. After effort resolution to a concrete target, operator `modelAliases` and `modelSpecs` overrides continue to apply to that resolved target. An alias name cannot be defined in both `modelAliases` and `effortRouting` simultaneously. Chaining (an effort routing target equaling another effort routing alias) is not supported.
 - **Non-Google provider collision constraint**: aliases and targets must be Google Antigravity-dispatchable models. Statically known Codex, OpenCode Zen, or Ollama catalog IDs may not be used as effort-routing aliases or targets. If an alias or target later matches a dynamically discovered Ollama model, the proxy logs a runtime warning and keeps the existing provider precedence.
 - **Catalog visibility**: when configured, `/v1/models` advertises the alias and soft-hides its configured concrete targets. The alias inherits catalog metadata from its default effort target. The native `/v1beta/models` catalog retains concrete models and does not substitute effort aliases, because native `/v1beta` and `/v1internal` requests forward model IDs unchanged. Direct requests to concrete targets remain functional.

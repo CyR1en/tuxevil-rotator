@@ -54,3 +54,28 @@ describe("Models provider drawer navigation", () => {
     assert.equal(router.providerPath("ollama"), "/dashboard/models/ollama");
   });
 });
+
+describe("Models effort route editor navigation", () => {
+  it("matches the editor for an effort ID and for a new one", () => {
+    const { router } = browser("/dashboard/models");
+    // The router runs in another realm; compare plain copies.
+    const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
+    assert.deepEqual(plain(router.matchRoute("/dashboard/models/effort/gemini-3.8-flash")), {
+      page: "models", account: null, provider: null, effort: { alias: "gemini-3.8-flash" },
+    });
+    assert.deepEqual(plain(router.matchRoute("/dashboard/models/effort").effort), { alias: null });
+    assert.equal(router.matchRoute("/dashboard/models/ollama").effort, null);
+  });
+
+  it("keeps the Models query, encodes IDs and carries the suggested family only while creating", () => {
+    const { router, window } = browser("/dashboard/models?filter=effort&q=flash");
+    router.navigate(router.effortPath(null, "gemini-3.6-flash"));
+    assert.equal(window.location.pathname, "/dashboard/models/effort");
+    assert.equal(router.query.value.get("from"), "gemini-3.6-flash");
+    assert.equal(router.query.value.get("filter"), "effort");
+    router.navigate(router.effortPath("a/b"));
+    assert.equal(window.location.pathname, "/dashboard/models/effort/a%2Fb");
+    assert.equal(router.query.value.get("from"), null);
+    assert.equal(router.query.value.get("q"), "flash");
+  });
+});

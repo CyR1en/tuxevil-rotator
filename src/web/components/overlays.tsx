@@ -76,23 +76,35 @@ export function Drawer({
   onClose,
   label,
   children,
+  confirmClose,
 }: {
   open: boolean;
   onClose: () => void;
   label: string;
   children?: ComponentChildren;
+  /** Asked before Escape or a backdrop click closes the drawer; false keeps it open. */
+  confirmClose?: () => boolean | Promise<boolean>;
 }): JSX.Element {
   const ref = useNativeDialog(open);
+  const requestClose = async () => {
+    if (confirmClose && !(await confirmClose())) return;
+    onClose();
+  };
   return (
     <dialog
       ref={ref}
       class="drawer"
       aria-label={label}
+      onCancel={(event) => {
+        if (!confirmClose) return;
+        event.preventDefault();
+        void requestClose();
+      }}
       onClose={() => {
         if (open) onClose();
       }}
       onClick={(event) => {
-        if (event.target === ref.current) onClose();
+        if (event.target === ref.current) void requestClose();
       }}
     >
       {open && <div class="drawer-inner">{children}</div>}

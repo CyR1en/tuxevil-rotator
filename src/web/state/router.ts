@@ -13,6 +13,8 @@ export interface RouteMatch {
   account: string | null;
   /** Id of the provider whose drawer is open on the Models page. */
   provider: string | null;
+  /** Effort route editor on the Models page; alias null while creating one. */
+  effort: { alias: string | null } | null;
 }
 
 interface LocationState {
@@ -41,14 +43,16 @@ function decodeSegment(segment: string | undefined): string | null {
 
 export function matchRoute(path: string): RouteMatch {
   const rest = path.replace(/\/+$/, "").slice(BASE.length).split("/").filter(Boolean);
-  const [head, second] = rest;
-  if (!head) return { page: "overview", account: null, provider: null };
-  if (head === "accounts") return { page: "accounts", account: decodeSegment(second), provider: null };
-  if (head === "models") return { page: "models", account: null, provider: decodeSegment(second) };
+  const [head, second, third] = rest;
+  const none = { account: null, provider: null, effort: null };
+  if (!head) return { ...none, page: "overview" };
+  if (head === "accounts") return { ...none, page: "accounts", account: decodeSegment(second) };
+  if (head === "models" && second === "effort") return { ...none, page: "models", effort: { alias: decodeSegment(third) } };
+  if (head === "models") return { ...none, page: "models", provider: decodeSegment(second) };
   if (head === "requests" || head === "usage" || head === "keys" || head === "settings") {
-    return { page: head, account: null, provider: null };
+    return { ...none, page: head };
   }
-  return { page: "not-found", account: null, provider: null };
+  return { ...none, page: "not-found" };
 }
 
 export const route = computed(() => matchRoute(location.value.path));
@@ -62,7 +66,7 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
   window.history[options.replace ? "replaceState" : "pushState"](null, "", next);
   location.value = readLocation();
   const match = matchRoute(target.pathname);
-  if (pathChanged && !match.account && !match.provider) {
+  if (pathChanged && !match.account && !match.provider && !match.effort) {
     // Pages scroll inside the canvas, not the window.
     document.getElementById("main")?.scrollTo(0, 0);
     window.scrollTo(0, 0);
@@ -87,6 +91,18 @@ export function accountPath(email: string): string {
 export function providerPath(providerId: string): string {
   const search = route.value.page === "models" ? location.value.search : "";
   return `${BASE}/models/${encodeURIComponent(providerId)}${search}`;
+}
+
+/**
+ * The effort route editor, keeping the Models filters. With no alias it
+ * creates one, prefilled from the suggested family `from` when given.
+ */
+export function effortPath(alias: string | null, from?: string): string {
+  const search = new URLSearchParams(route.value.page === "models" ? location.value.search : "");
+  search.delete("from");
+  if (alias === null && from) search.set("from", from);
+  const text = search.toString();
+  return `${BASE}/models/effort${alias === null ? "" : `/${encodeURIComponent(alias)}`}${text ? `?${text}` : ""}`;
 }
 
 /** Legacy routes from the old dashboard. */

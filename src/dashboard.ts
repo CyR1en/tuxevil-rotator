@@ -35,6 +35,7 @@ import {
 import { getSpendLogs, getDailySpendSummary, getSpendByKey } from "./spend-logger.js";
 import { buildOpenAIModelCatalog } from "./compat.js";
 import { getProviderOrder, isProviderTurnedOff, resolveModelRoute } from "./model-catalog.js";
+import { describeEffortRoutes, effortRouteTargets, suggestEffortRoutes, type EffortRoutePlan } from "./effort-routing.js";
 import { getProviderAdapter } from "./providers/registry.js";
 import { logger } from "./logger.js";
 
@@ -271,6 +272,10 @@ export function buildModelCatalogResponse(rotator: AccountRotator): ModelCatalog
     const route = resolveModelRoute(rotator, model.id);
     routedTo.set(id, route.kind === "provider" ? route.providerId : null);
   }
+  const effortTargets = effortRouteTargets(config);
+  const listed = config.effortRouting
+    ? new Set(buildOpenAIModelCatalog(rotator).map((entry) => entry.id.toLowerCase()))
+    : new Set<string>();
   return {
     ok: true,
     providers: getProviderOrder(rotator).map((id) => {
@@ -291,8 +296,13 @@ export function buildModelCatalogResponse(rotator: AccountRotator): ModelCatalog
       offReason: model.offReason,
       modelSwitch: model.modelSwitch,
       routed: routedTo.get(model.id.toLowerCase()) === model.providerId,
+      ...(model.providerId === "google-antigravity" && effortTargets.has(model.id.toLowerCase())
+        ? { effortRoute: effortTargets.get(model.id.toLowerCase()) }
+        : {}),
     })),
     autoEnableNewModels: config.autoEnableNewModels ?? true,
+    effortRoutes: describeEffortRoutes(rotator, (alias) => listed.has(alias.toLowerCase())),
+    effortSuggestions: suggestEffortRoutes(rotator),
   };
 }
 
@@ -324,6 +334,8 @@ function catalogMethodFor(rest: string[]): string | null {
   if (rest.length === 1 && rest[0] === "provider-order") return "PUT";
   if (toggle && ((rest[0] === "providers" && rest.length === 3) || (rest[0] === "models" && rest.length === 2) ||
     (rest[0] === "new-models" && rest.length === 2) || (rest[0] === "accounts" && rest.length === 4))) return "POST";
+  if (rest[0] === "effort-routes" && rest.length === 1) return "POST";
+  if (rest[0] === "effort-routes" && rest.length === 2) return "PUT, DELETE";
   return null;
 }
 
@@ -338,6 +350,10 @@ function catalogMethodFor(rest: string[]): string | null {
  *   POST /api/catalog/new-models/on|off
  *   POST /api/catalog/accounts/:accountId/:provider/on|off
  *        accountId is dashboard account.id; an unambiguous legacy email also works.
+ *   POST   /api/catalog/effort-routes         { "alias", "defaultEffort", "targets": { "<level>": "<model>" } }
+ *   PUT    /api/catalog/effort-routes/:alias  same body; "alias" renames the route
+ *   DELETE /api/catalog/effort-routes/:alias
+ *        A refused change answers { ok: false, error, fieldErrors? } (EffortRouteErrorResponse).
  */
 export async function serveCatalogApi(
   req: IncomingMessage,
@@ -391,6 +407,28 @@ export async function serveCatalogApi(
     if (method === "POST" && rest[0] === "new-models" && rest.length === 2 && toggle !== null) {
       await rotator.setAutoEnableNewModels(toggle);
       return done();
+    }
+
+    if (rest[0] === "effort-routes") {
+      const answer = (plan: EffortRoutePlan) =>
+        plan.ok
+          ? done()
+          : sendCatalogJson(res, plan.status, {
+            ok: false,
+            error: plan.error,
+            ...(plan.fieldErrors ? { fieldErrors: plan.fieldErrors } : {}),
+          });
+      if (method === "POST" && rest.length === 1) {
+        const body = await readJsonObject(req);
+        return answer(await rotator.saveEffortRoute(null, body));
+      }
+      if (method === "PUT" && rest.length === 2) {
+        const body = await readJsonObject(req);
+        return answer(await rotator.saveEffortRoute(rest[1], body));
+      }
+      if (method === "DELETE" && rest.length === 2) {
+        return answer(await rotator.deleteEffortRoute(rest[1]));
+      }
     }
 
     if (method === "POST" && rest[0] === "accounts" && rest.length === 4 && toggle !== null) {

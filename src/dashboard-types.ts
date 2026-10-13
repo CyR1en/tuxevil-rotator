@@ -217,6 +217,50 @@ export interface CatalogModelEntry {
   modelSwitch: "on" | "off" | "review";
   /** Requests for this id go to this provider. */
   routed: boolean;
+  /** Set when an effort-routed model ID sends one of its effort levels here. */
+  effortRoute?: { alias: string; effort: string };
+}
+
+/** One effort level of an effort-routed model ID. */
+export interface CatalogEffortTarget {
+  /** Lower-cased level name, e.g. "high". */
+  effort: string;
+  /** Google Antigravity model the level routes to. */
+  model: string;
+  /** False when no provider lists the model right now. */
+  known: boolean;
+  /** False when a request for this level would be refused (model off or waiting for review). */
+  served: boolean;
+}
+
+/**
+ * live: listed in /v1/models and every level is served.
+ * partial: listed, but some levels are refused.
+ * hidden: not listed (default model refused or missing, or another provider owns the ID).
+ * off: its own switch is off.
+ * provider-off: Google Antigravity is off.
+ */
+export type EffortRouteStatus = "live" | "partial" | "hidden" | "off" | "provider-off";
+
+/** A model ID clients call that picks a target from the request's effort. */
+export interface CatalogEffortRoute {
+  alias: string;
+  defaultEffort: string;
+  /** Standard levels first (minimal to max), then custom ones. */
+  targets: CatalogEffortTarget[];
+  /** Its own switch: off rejects every request for the ID. */
+  enabled: boolean;
+  /** Clients see it in /v1/models. */
+  listed: boolean;
+  /** Another provider lists the same ID and gets its requests instead. */
+  shadowedBy: string | null;
+  status: EffortRouteStatus;
+}
+
+/** Effort variants of one model family that no effort route uses yet. */
+export interface CatalogEffortSuggestion {
+  alias: string;
+  targets: Array<{ effort: string; model: string }>;
 }
 
 export interface ModelCatalogResponse {
@@ -227,4 +271,15 @@ export interface ModelCatalogResponse {
   models: CatalogModelEntry[];
   /** False when models a provider adds later stay off until turned on. */
   autoEnableNewModels: boolean;
+  /** Configured effort routes, in config order. */
+  effortRoutes: CatalogEffortRoute[];
+  /** Model families that could become effort routes. */
+  effortSuggestions: CatalogEffortSuggestion[];
+}
+
+/** Body of a refused effort route change; field keys are "alias", "defaultEffort", "targets" or "targets.<level>". */
+export interface EffortRouteErrorResponse {
+  ok: false;
+  error: string;
+  fieldErrors?: Record<string, string>;
 }
