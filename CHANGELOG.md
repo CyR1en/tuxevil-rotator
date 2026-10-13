@@ -14,7 +14,8 @@
 ### Fixed
 
 - **Configuration edits apply immediately**: `effortRouting`, `modelAliases` and `modelSpecs` saved from the dashboard now take effect without a restart. Previously the Settings editor reported "Saved and applied" while requests kept the old rules.
-
+- **Switched-off effort aliases**: requests for an effort alias that is turned off now get `404 model_not_found` (`not_found_error` on `/v1/messages`) whatever its name looks like. Before, an alias whose name didn't look like a Gemini or Claude id was refused later with a generic upstream error.
+- **Gemini 3.5 Flash Lite usage**: requests are now recorded under `gemini-3.5-flash-lite` instead of `gemini-3-flash`, so the Models page and effort routes show its traffic. Pricing is unchanged.
 - **Automatic Codex model discovery**: send the required `client_version` query parameter, accept future numbered GPT versions including `gpt-6.1-sol`, and parse Codex catalog `slug` entries. Refresh discovery during quota polling with a five-minute cache and shared concurrent requests, retaining the last catalog when discovery fails.
 - **Codex account catalogs**: merge model discoveries from all eligible accounts, with at most four concurrent queries, so a restricted first account does not hide models available through other plans.
 

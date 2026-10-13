@@ -294,6 +294,13 @@ describe("resolveDisplayModelKey with effort routing", () => {
 		assert.equal(resolveDisplayModelKey("claude-sonnet-4-6"), "claude-sonnet-4-6");
 	});
 
+	it("records Gemini 3.5 Flash Lite under its own id, directly and through an alias", () => {
+		assert.equal(resolveDisplayModelKey("gemini-3.5-flash-lite"), "gemini-3.5-flash-lite");
+		assert.equal(resolveDisplayModelKey("gemini-3-flash"), "gemini-3-flash");
+		setEffortRoutingOverride({ lite: { defaultEffort: "low", targets: { low: "gemini-3.5-flash-lite" } } });
+		assert.equal(resolveDisplayModelKey("lite", "gemini-3.5-flash-lite"), "gemini-3.5-flash-lite");
+	});
+
 	it("resolves from effectiveModel when requestModel matches configured effort routing alias", () => {
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {

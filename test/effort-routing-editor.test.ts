@@ -247,6 +247,16 @@ describe("effort route plans", () => {
 });
 
 describe("effort route status and suggestions", () => {
+  it("treats a switched-off effort alias as off whatever its name looks like", () => {
+    const rule = { defaultEffort: "low", targets: { low: "gemini-3.8-flash-low" } };
+    const off = makeSource({ effortRouting: { "my-model": rule }, disabledModels: [key("my-model")] });
+    overrides.applyConfigOverrides(off.getConfig());
+    assert.deepEqual(modelCatalog.resolveModelRoute(off, "my-model"), { kind: "off", providerIds: ["google-antigravity"] });
+    const on = makeSource({ effortRouting: { "my-model": rule } });
+    overrides.applyConfigOverrides(on.getConfig());
+    assert.equal(modelCatalog.resolveModelRoute(on, "my-model").kind, "unlisted");
+  });
+
   it("says what clients get from each route", () => {
     const source = makeSource(
       {

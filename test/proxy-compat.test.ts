@@ -1178,6 +1178,42 @@ describe("effort-based routing endpoint e2e", () => {
 		}
 	});
 
+	it("rejects a switched-off effort alias with any name as model not found", async () => {
+		// "my-model" matches no provider's naming pattern; it is still an Antigravity id.
+		setEffortRoutingOverride({
+			"my-model": { defaultEffort: "low", targets: { low: "gemini-3.8-flash-low" } },
+		});
+		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
+		const rotator = {
+			...createE2eRotator(createAccount(), tracking),
+			getConfig: () => ({ accounts: [], disabledModels: ["google-antigravity/my-model"] }),
+		} as unknown as AccountRotator;
+		const proxy = startProxy(rotator, 0, "127.0.0.1");
+		await once(proxy, "listening");
+		const port = (proxy.address() as AddressInfo).port;
+		const post = (path: string, body: Record<string, unknown>) =>
+			fetch(`http://127.0.0.1:${port}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		try {
+			let response = await post("/v1/chat/completions", { model: "my-model", messages: [{ role: "user", content: "hi" }] });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { code: string } }).error.code, "model_not_found");
+			response = await post("/v1/responses", { model: "my-model", input: "hi" });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { code: string } }).error.code, "model_not_found");
+			response = await post("/v1/messages", { model: "my-model", max_tokens: 16, messages: [{ role: "user", content: "hi" }] });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { type: string } }).error.type, "not_found_error");
+			assert.equal(tracking.requestLogs.length, 0);
+		} finally {
+			proxy.closeAllConnections?.();
+			await closeServer(proxy);
+		}
+	});
+
 	it("native catalog exposes concrete targets that generateContent forwards unchanged", async () => {
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {
