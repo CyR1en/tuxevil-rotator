@@ -58,6 +58,48 @@ function makeConfig(): Config {
 }
 
 describe("v2 routing and status", () => {
+  it("merges different account catalogs without losing models or discovered metadata", async () => {
+    const { getCodexModel, setDiscoveredCodexModels } = await import("../src/providers/openai-codex/catalog.js");
+    const config = makeConfig();
+    config.accounts = ["free", "paid", "broken", "other"].map((id) => ({
+      email: `${id}@example.com`,
+      credentials: [{ provider: "openai-codex", refreshToken: id }],
+    }));
+    const rotator = new AccountRotator(config) as any;
+    rotator.stopQuotaPolling();
+    for (const account of rotator.accounts) {
+      account.providerTokens = { "openai-codex": { accessToken: account.config.email.split("@")[0], tokenExpires: Date.now() + 60_000 } };
+    }
+    rotator.ensureValidTokenForProvider = async (account: { config: { email: string } }) => {
+      if (account.config.email.startsWith("broken")) throw new Error("invalid credential");
+    };
+    const originalFetch = globalThis.fetch;
+    const requested: string[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      const token = new Headers(init?.headers).get("authorization")!;
+      requested.push(token);
+      return Response.json({ models: token === "Bearer paid"
+        ? [{ slug: "gpt-6.1-sol", context_window: 500_000 }, { slug: "gpt-6-sol", context_window: 800_000 }]
+        : token === "Bearer other"
+          ? [{ slug: "gpt-7-codex", context_window: 700_000 }]
+          : [{ slug: "gpt-6-luna", context_window: 272_000 }],
+      });
+    }) as typeof fetch;
+    try {
+      await rotator.primeCodexCatalog();
+      assert.equal(requested.length, 3, "failed token refresh does not prevent other discoveries");
+      for (const model of ["gpt-6.1-sol", "gpt-7-codex", "gpt-6-luna"]) {
+        assert.ok(rotator.getCodexModels().includes(model));
+        assert.equal(getCodexModel(model)?.source, "discovered");
+        assert.equal(providerAdapterForModel(rotator.accounts[0], model, rotator).id, "openai-codex");
+      }
+      assert.equal(getCodexModel("gpt-6-sol")?.contextWindow, 800_000);
+    } finally {
+      globalThis.fetch = originalFetch;
+      setDiscoveredCodexModels([]);
+    }
+  });
+
   it("refreshes the Codex catalog during quota polling and coalesces concurrent discovery", async () => {
     const { setDiscoveredCodexModels } = await import("../src/providers/openai-codex/catalog.js");
     const config = makeConfig();

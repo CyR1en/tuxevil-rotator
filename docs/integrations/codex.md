@@ -88,6 +88,8 @@ that match `^gpt-[0-9]+(?:[.][0-9]+)*(?:-[a-z0-9]+)+$`, including future
 versions such as `gpt-6.1-sol`, filtering out other providers exposed by that
 endpoint. Discovery accepts Codex `slug` entries and legacy `id`, `model`, or
 `name` entries and sends the required `client_version` query parameter. The
+catalog merges discoveries from all enabled, eligible accounts because plans
+can expose different models. Requests run in batches of four. The
 catalog is fetched at startup and refreshed during quota
 polling with a five-minute cache; concurrent fetches share one request. A
 discovery failure keeps the last known catalog and the base list in place.

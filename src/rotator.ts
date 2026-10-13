@@ -85,6 +85,8 @@ import {
   getCodexModels,
   isCodexRequestModel,
   isCodexProviderModelId,
+  setDiscoveredCodexModels,
+  type CodexModel,
 } from "./providers/openai-codex/catalog.js";
 import { CodexOAuthError } from "./providers/openai-codex/oauth.js";
 import { CODEX_QUOTA_MODEL_KEY } from "./providers/openai-codex/quota.js";
@@ -379,21 +381,36 @@ export class AccountRotator {
     if (this.codexCatalogFetch) return this.codexCatalogFetch;
     const now = Date.now();
     if (!force && now - this.lastCodexCatalogFetch < TAGS_CACHE_TTL_MS) return Promise.resolve();
-    const account = this.accounts.find(
+    const accounts = this.accounts.filter(
       (candidate) => hasCredential(candidate.config, "openai-codex") &&
         !candidate.disabled && !candidate.flagged &&
         !candidate.invalidProviders?.["openai-codex"] &&
         !this.isProviderOffForAccount(candidate, "openai-codex"),
     );
-    if (!account) return Promise.resolve();
+    if (accounts.length === 0) return Promise.resolve();
     this.lastCodexCatalogFetch = now;
     this.codexCatalogFetch = (async () => {
-      try {
-        await this.ensureValidTokenForProvider(account, "openai-codex");
-        const models = await fetchCodexCatalog(account);
+      const merged = new Map<string, CodexModel>();
+      // Plans expose different catalogs. Query all eligible accounts, limiting
+      // concurrency so a large pool does not burst token refreshes or discovery.
+      for (let offset = 0; offset < accounts.length; offset += 4) {
+        const results = await Promise.allSettled(accounts.slice(offset, offset + 4).map(async (account) => {
+          await this.ensureValidTokenForProvider(account, "openai-codex");
+          return fetchCodexCatalog(account);
+        }));
+        for (const result of results) {
+          if (result.status !== "fulfilled") continue;
+          for (const model of result.value) {
+            // A restricted account's base fallback must not overwrite metadata
+            // discovered through another account with access to the model.
+            if (model.source === "discovered" || !merged.has(model.id)) merged.set(model.id, model);
+          }
+        }
+      }
+      if (merged.size > 0) {
+        const models = [...merged.values()];
+        setDiscoveredCodexModels(models.filter((model) => model.source === "discovered"));
         this.setCodexModels(models.map((model) => model.id));
-      } catch {
-        // Keep the last known catalog and base allowlist on discovery failure.
       }
     })().finally(() => {
       this.codexCatalogFetch = null;
