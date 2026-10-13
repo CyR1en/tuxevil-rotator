@@ -112,6 +112,8 @@ export function resolveMimeType(fileName: string, mimeType?: string): string {
 export interface TranscribeOptions {
   mimeType?: string;
   model?: string;
+  /** Model the client asked for (e.g. whisper-1), rechecked against the switches at dispatch. */
+  catalogModel?: string;
   prompt?: string;
   language?: string;
   signal?: AbortSignal;
@@ -273,6 +275,7 @@ export async function transcribeAudioWithRotator(
 
   const body: RequestBody = {
     model: targetModel,
+    catalogModel: options.catalogModel,
     project: "",
     request: {
       contents: [
@@ -992,6 +995,7 @@ export async function handleOpenAIAudioTranscriptions(
         transcribedText = await transcribeAudioWithRotator(rotator, audioBuffer, {
           mimeType,
           model: executedModel,
+          catalogModel: requestedModel ?? "whisper-1",
           prompt,
           language,
           signal: transcriptionSignal,
@@ -1704,6 +1708,7 @@ export function appendDeduplicated(existing: string, addition: string): string {
 export class RotatorAudioSession implements AudioTranscriptionSession {
   public sessionId: string;
   public model: string;
+  private catalogModel?: string;
   public continuous: boolean;
   public language?: string;
   private rotator: AccountRotator;
@@ -1745,6 +1750,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
     rotator: AccountRotator,
     options: {
       model?: string;
+      catalogModel?: string;
       continuous?: boolean;
       language?: string;
       onEvent?: (event: any) => void;
@@ -1754,6 +1760,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
     this.rotator = rotator;
     this.sessionId = `session-rotator-${Date.now()}-${crypto.randomUUID()}`;
     this.model = resolveAudioTranscriptionModel(options.model);
+    this.catalogModel = options.catalogModel;
     this.continuous = options.continuous ?? false;
     this.language = options.language;
     this.onEvent = options.onEvent || (() => {});
@@ -1912,6 +1919,7 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
       try {
         rawText = await transcribeAudioWithRotator(this.rotator, wav, {
           model: this.model,
+          catalogModel: this.catalogModel,
           language: this.language,
           timeoutMs: LIVE_ROTATOR_TRANSCRIPTION_TIMEOUT_MS,
           signal: segmentSignal,
@@ -1938,8 +1946,8 @@ export class RotatorAudioSession implements AudioTranscriptionSession {
         if (this.abortController.signal.aborted || segmentDeadlineController.signal.aborted) {
           throw rotatorErr;
         }
-        if (isRequestOff(this.rotator, { model: this.model })) {
-          throw new AudioTranscriptionError(modelOffMessage(this.model), 404);
+        if (isRequestOff(this.rotator, { model: this.model, catalogModel: this.catalogModel })) {
+          throw new AudioTranscriptionError(modelOffMessage(this.catalogModel ?? this.model), 404);
         }
         audioLogger.warn(
           `[RotatorAudioSession] Segment #${item.seqId} rotator transcription failed: ${(rotatorErr as Error)?.message || rotatorErr}, attempting Language Server fallback`,
@@ -2207,7 +2215,7 @@ async function authorizeClientModel(
 function createClientSession(
   client: AudioWsClient,
   model: string,
-  options: { preCursorText?: string; postCursorText?: string; continuous?: boolean; language?: string },
+  options: { catalogModel?: string; preCursorText?: string; postCursorText?: string; continuous?: boolean; language?: string },
 ): AudioTranscriptionSession {
   client.tStartTime = Date.now();
   client.tFirstAntigravity = null;
@@ -2313,6 +2321,7 @@ async function handleClientCommand(client: AudioWsClient, cmd: any): Promise<voi
     });
 
     const session = createClientSession(client, model, {
+      catalogModel: requested ?? "whisper-1",
       preCursorText: cmd.preCursorText || "",
       postCursorText: cmd.postCursorText || "",
       continuous: cmd.continuous ?? false,

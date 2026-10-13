@@ -220,6 +220,7 @@ describe("proxy compat integration", () => {
 			assert.match(capturesDaily[0].body, /"contents":\[\{"role":"user","parts":\[\{"text":"ping"\}\]\}\]/);
 			assert.match(capturesDaily[0].body, /"userAgent":"antigravity"/);
 			assert.equal(JSON.parse(capturesDaily[0].body).requestedModel, undefined);
+			assert.equal(JSON.parse(capturesDaily[0].body).catalogModel, undefined);
 			assert.equal(capturesDaily[0].headers.authorization, "Bearer access-token");
 			assert.equal(capturesDaily[0].headers["user-agent"], DEFAULT_ANTIGRAVITY_USER_AGENT);
 			assert.equal(capturesDaily[0].headers["x-goog-api-client"], "google-cloud-sdk vscode_cloudshelleditor/0.1");

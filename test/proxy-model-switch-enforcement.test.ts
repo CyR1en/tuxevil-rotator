@@ -30,6 +30,7 @@ let stopVersionChecker: typeof import("../src/version-check.js").stopVersionChec
 let stopNotificationPoller: typeof import("../src/notification-poller.js").stopNotificationPoller;
 let openAIToAntigravityBody: typeof import("../src/providers/google-antigravity/translators.js").openAIToAntigravityBody;
 let setEffortRoutingOverride: typeof import("../src/types.js").setEffortRoutingOverride;
+let RotatorAudioSession: typeof import("../src/audio-transcription.js").RotatorAudioSession;
 let resetCatalog: () => void;
 
 type Rotator = InstanceType<typeof AccountRotator>;
@@ -56,6 +57,7 @@ before(async () => {
   ({ stopNotificationPoller } = await import("../src/notification-poller.js"));
   ({ openAIToAntigravityBody } = await import("../src/providers/google-antigravity/translators.js"));
   ({ setEffortRoutingOverride } = await import("../src/types.js"));
+  ({ RotatorAudioSession } = await import("../src/audio-transcription.js"));
   const { dynamicCatalog } = await import("../src/providers/google-antigravity/dynamic-catalog.js");
   resetCatalog = () => dynamicCatalog.reset();
 });
@@ -186,6 +188,13 @@ function post(url: string, body: unknown): Promise<Response> {
     headers: { "content-type": "application/json", "x-skip-safety-jitter": "true" },
     body: JSON.stringify(body),
   });
+}
+
+/** One second of 16 kHz PCM loud enough to pass the live session's speech detection. */
+function loudPcm(): Buffer {
+  const pcm = Buffer.alloc(32_000);
+  for (let offset = 0; offset < pcm.length; offset += 2) pcm.writeInt16LE(offset % 4 ? -10_000 : 10_000, offset);
+  return pcm;
 }
 
 function translatedEffortRequest(): RequestBody {
@@ -386,6 +395,23 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     assertReleased(accounts);
   });
 
+  it("rechecks the admitted account's provider switch after token validation and reroutes", async () => {
+    const { rotator, accounts } = makeRotator({}, 2);
+    let switchedOff: string | undefined;
+    mock.method(getProviderAdapter(GOOGLE), "ensureValidToken", async (account: AccountRuntime) => {
+      // Admission validates a snapshot copy; only withRotation passes the real account.
+      if (switchedOff || !accounts.includes(account)) return;
+      switchedOff = account.config.email;
+      await rotator.setAccountProviderEnabled(switchedOff, GOOGLE, false);
+    });
+    const outcome = await withRotation(rotator, MODEL, {}, requestBody(), (response) => response.text());
+    assert.ok(switchedOff);
+    assert.equal(outcome.ok, true);
+    assert.equal(captures.length, 1);
+    assert.notEqual(captures[0].account.config.email, switchedOff, "no request may be sent through the switched-off account");
+    assertReleased(accounts);
+  });
+
   it("keeps the admitted provider pinned when its model is switched off and another provider still serves the ID", async () => {
     const { rotator, accounts } = makeRotator({ providerOrder: [GOOGLE, "ollama"] });
     rotator.setOllamaModels([MODEL]);
@@ -518,6 +544,59 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     assert.equal(response.status, 404);
     assert.match(await response.text(), /turned off/);
     assert.equal(captures.length, 0);
+    assertReleased(accounts);
+  });
+
+  it("rechecks a native request's account switch after token validation and returns its reservation", async () => {
+    const { rotator, accounts } = makeRotator();
+    mock.method(getProviderAdapter(GOOGLE), "ensureValidToken", async (account: AccountRuntime) => {
+      await rotator.setAccountProviderEnabled(account.config.email, GOOGLE, false);
+    });
+    const base = await listenProxy(rotator);
+    const response = await post(`${base}/v1internal:generateContent`, requestBody());
+    assert.equal(response.status, 503);
+    await response.body?.cancel();
+    assert.equal(captures.length, 0);
+    assertReleased(accounts);
+  });
+
+  it("rechecks whisper-1 after token validation for HTTP transcriptions", async () => {
+    const { rotator, accounts } = makeRotator();
+    mock.method(getProviderAdapter(GOOGLE), "ensureValidToken", async () => {
+      await rotator.setModelsEnabled([`${GOOGLE}/whisper-1`], false);
+    });
+    const base = await listenProxy(rotator);
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array(loudPcm())], "sample.pcm", { type: "audio/pcm" }));
+    form.append("model", "whisper-1");
+    const response = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", body: form });
+    assert.equal(response.status, 404);
+    const body = (await response.json()) as { error?: { code?: string } };
+    assert.equal(body.error?.code, "model_not_found");
+    assert.equal(captures.length, 0);
+    assertReleased(accounts);
+  });
+
+  it("rechecks whisper-1 after token validation for WebSocket segments", async () => {
+    const { rotator, accounts } = makeRotator();
+    mock.method(getProviderAdapter(GOOGLE), "ensureValidToken", async () => {
+      await rotator.setModelsEnabled([`${GOOGLE}/whisper-1`], false);
+    });
+    const errors: Error[] = [];
+    const session = new RotatorAudioSession(rotator, {
+      model: "whisper-1",
+      catalogModel: "whisper-1",
+      onError: (err) => errors.push(err),
+    });
+    try {
+      await session.start();
+      session.sendChunk(loudPcm());
+      await session.endSession();
+    } finally {
+      session.destroy();
+    }
+    assert.equal(captures.length, 0);
+    assert.match(errors[0]?.message ?? "", /'whisper-1' is turned off/);
     assertReleased(accounts);
   });
 

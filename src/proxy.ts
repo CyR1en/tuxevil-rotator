@@ -1061,20 +1061,19 @@ export async function benchmarkAccount(
 
   const benchmarkProvider = getProviderForAccount(account.config);
   const benchmarkSpec = benchmarkProvider.getBenchmark(account);
-  if (
-    rotator.isProviderOffForAccount?.(account, benchmarkProvider.id) ||
-    isProviderModelOff(rotator, benchmarkProvider.id, benchmarkSpec.body.model)
-  ) {
-    return {
-      account: label,
-      status: "skipped",
-      latencyMs: null,
-      ttfbMs: null,
-      outputTokens: null,
-      tokensPerSecond: null,
-      error: `${benchmarkProvider.displayName} is turned off on the Models page`,
-    };
-  }
+  const turnedOff = (): boolean =>
+    Boolean(rotator.isProviderOffForAccount?.(account, benchmarkProvider.id)) ||
+    isProviderModelOff(rotator, benchmarkProvider.id, benchmarkSpec.body.model);
+  const turnedOffResult: BenchmarkResult = {
+    account: label,
+    status: "skipped",
+    latencyMs: null,
+    ttfbMs: null,
+    outputTokens: null,
+    tokensPerSecond: null,
+    error: `${benchmarkProvider.displayName} is turned off on the Models page`,
+  };
+  if (turnedOff()) return turnedOffResult;
   rotator.startRequest(account, benchmarkSpec.body.model);
   const timeoutController = new AbortController();
   const timeout = setTimeout(
@@ -1088,6 +1087,7 @@ export async function benchmarkAccount(
 
   try {
     await rotator.ensureValidToken(account);
+    if (turnedOff()) return turnedOffResult;
     const forwarded = await providerAdapterForModel(
       account,
       benchmarkSpec.body.model,
@@ -1379,6 +1379,12 @@ export async function withRotation<T>(
       // selected provider, never merely the account's primary provider.
       await provider.ensureValidToken(account);
       if (requestIsOff(provider.id)) return modelOffOutcome();
+      // The operator may also turn this provider off for just this account.
+      if (rotator.isProviderOffForAccount?.(account, provider.id)) {
+        logRequestEnd("account-provider-off");
+        if (attempt < maxRetries) continue;
+        return sendNoAccountsAvailable(`${provider.id} turned off for ${label}`);
+      }
       rotator.recordUpstreamAttempt(account);
       const forwarded = await provider.forwardRequest(
         account,
@@ -1911,6 +1917,13 @@ async function handleProxyRequest(
       await provider.ensureValidToken(account);
       if (requestIsOff()) {
         sendModelOff();
+        return;
+      }
+      // The operator may also turn this provider off for just this account.
+      if (rotator.isProviderOffForAccount?.(account, providerId)) {
+        logRequestEnd("account-provider-off");
+        if (attempt < maxRetries) continue;
+        sendNoAccountsAvailable(`${providerId} turned off for ${label}`);
         return;
       }
       rotator.recordUpstreamAttempt(account);
