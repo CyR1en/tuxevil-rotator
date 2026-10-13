@@ -112,6 +112,7 @@ Optional Codex environment variables (defaults from
 | `CODEX_OAUTH_SCOPE` | `openid profile email offline_access` |
 | `CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex` |
 | `CODEX_USAGE_URL` | `https://chatgpt.com/backend-api/wham/usage` |
+| `CODEX_CLIENT_VERSION` | `0.162.1` (protocol version for catalog discovery) |
 
 Model names are matched per provider: Codex models are sent only to Codex
 credentials, Ollama models only to Ollama credentials, and Google models only to

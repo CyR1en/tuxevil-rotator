@@ -31,6 +31,8 @@ import {
 } from "../src/providers/openai-codex/quota.js";
 import {
   CODEX_BASE_MODELS,
+  fetchCodexCatalog,
+  getCodexModel,
   isCodexModel,
   isCodexRequestModel,
   setDiscoveredCodexModels,
@@ -46,6 +48,48 @@ afterEach(() => {
 });
 
 describe("openai-codex OAuth", () => {
+  it("discovers future GPT versions from Codex slug and legacy catalog entries", async () => {
+    const account = {
+      config: { credentials: [{ provider: "openai-codex", providerAccountId: "catalog-account" }] },
+      providerTokens: { "openai-codex": { accessToken: "catalog-token", tokenExpires: Date.now() + 60_000 } },
+    } as unknown as AccountRuntime;
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      assert.match(url.pathname, /\/models$/);
+      assert.equal(url.searchParams.get("client_version"), process.env.CODEX_CLIENT_VERSION?.trim() || "0.162.1");
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("authorization"), "Bearer catalog-token");
+      assert.equal(headers.get("chatgpt-account-id"), "catalog-account");
+      return Response.json({ models: [
+        { slug: "gpt-6.1-sol", context_window: 500_000 },
+        { id: "gpt-7.2.1-codex-preview", context_length: 900_000, vision: false },
+        "gpt-12-sol",
+        { slug: "claude-sonnet-4-6" },
+        { slug: "gpt-oss-120b-medium" },
+        { slug: "gpt-6.1-sol/../../responses" },
+      ] });
+    }) as typeof fetch;
+    const models = await fetchCodexCatalog(account);
+    assert.ok(models.some((model) => model.id === "gpt-6.1-sol" && model.contextWindow === 500_000));
+    assert.equal(getCodexModel("gpt-7.2.1-codex-preview")?.multimodal, false);
+    assert.equal(isCodexRequestModel("gpt-12-sol"), true);
+    assert.equal(isCodexModel("claude-sonnet-4-6"), false);
+    assert.equal(isCodexModel("gpt-oss-120b-medium"), false);
+    assert.equal(isCodexModel("gpt-6.1-sol/../../responses"), false);
+
+    for (const response of [
+      () => new Response("unavailable", { status: 503 }),
+      () => new Response("invalid json"),
+      () => Response.json({ data: [] }),
+      () => { throw new Error("network failure"); },
+    ]) {
+      globalThis.fetch = (async () => response()) as typeof fetch;
+      assert.deepEqual(await fetchCodexCatalog(account), models, "discovery failures retain the last catalog");
+    }
+    globalThis.fetch = (async () => Response.json({ data: [{ model: "gpt-8-sol" }] })) as typeof fetch;
+    assert.ok((await fetchCodexCatalog(account)).some((model) => model.id === "gpt-8-sol"));
+  });
+
   it("includes GPT-6 models and keeps the GPT-5.6 Codex models", () => {
     assert.deepEqual(
       CODEX_BASE_MODELS.map((model) => model.id),

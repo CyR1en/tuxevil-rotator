@@ -283,6 +283,8 @@ export class AccountRotator {
   private codexModels = new Set<string>(getCodexModels().map((model) => model.id));
   private readonly usagePredictor = new UsagePredictor();
   private lastOllamaCatalogFetch = 0;
+  private lastCodexCatalogFetch = 0;
+  private codexCatalogFetch: Promise<void> | null = null;
 
   setOllamaModels(models: string[]): void {
     this.ollamaModels = new Set(models.map((m) => m.trim()).filter(Boolean));
@@ -369,18 +371,34 @@ export class AccountRotator {
     return [...this.codexModels];
   }
 
-  async primeCodexCatalog(): Promise<void> {
+  primeCodexCatalog(): Promise<void> {
+    return this.refreshCodexCatalogOnce(true);
+  }
+
+  private refreshCodexCatalogOnce(force = false): Promise<void> {
+    if (this.codexCatalogFetch) return this.codexCatalogFetch;
+    const now = Date.now();
+    if (!force && now - this.lastCodexCatalogFetch < TAGS_CACHE_TTL_MS) return Promise.resolve();
     const account = this.accounts.find(
-      (candidate) => hasCredential(candidate.config, "openai-codex") && !candidate.disabled && !candidate.flagged,
+      (candidate) => hasCredential(candidate.config, "openai-codex") &&
+        !candidate.disabled && !candidate.flagged &&
+        !candidate.invalidProviders?.["openai-codex"] &&
+        !this.isProviderOffForAccount(candidate, "openai-codex"),
     );
-    if (!account) return;
-    try {
-      await this.ensureValidTokenForProvider(account, "openai-codex");
-      const models = await fetchCodexCatalog(account);
-      this.setCodexModels(models.map((model) => model.id));
-    } catch {
-      // The verified base allowlist stays active when discovery is unavailable.
-    }
+    if (!account) return Promise.resolve();
+    this.lastCodexCatalogFetch = now;
+    this.codexCatalogFetch = (async () => {
+      try {
+        await this.ensureValidTokenForProvider(account, "openai-codex");
+        const models = await fetchCodexCatalog(account);
+        this.setCodexModels(models.map((model) => model.id));
+      } catch {
+        // Keep the last known catalog and base allowlist on discovery failure.
+      }
+    })().finally(() => {
+      this.codexCatalogFetch = null;
+    });
+    return this.codexCatalogFetch;
   }
 
   /** Fetch the Ollama Cloud catalog once at startup so provider-aware routing and /v1/models work before the first quota poll. */
@@ -1060,6 +1078,7 @@ export class AccountRotator {
 
   private async pollAllQuotasOnce(): Promise<void> {
     void this.refreshOllamaCatalogOnce().catch(() => {});
+    void this.refreshCodexCatalogOnce().catch(() => {});
 
     const available = this.accounts.filter((a) => !a.disabled && !a.flagged);
     this.reconcileDynamicCatalog();

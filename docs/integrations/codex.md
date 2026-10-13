@@ -47,6 +47,7 @@ Optional environment variables are available for deployments and tests:
 | `CODEX_OAUTH_SCOPE` | `openid profile email offline_access` |
 | `CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex` (the proxy calls `${base}/responses` and `${base}/models`) |
 | `CODEX_USAGE_URL` | `https://chatgpt.com/backend-api/wham/usage` (override for tests/self-hosted receivers) |
+| `CODEX_CLIENT_VERSION` | `0.162.1` (Codex protocol version required by catalog discovery) |
 
 The persisted credential shape is:
 
@@ -83,9 +84,15 @@ and `gpt-5.6-luna` IDs. All base IDs
 are exposed on `GET /v1/models`; upstream errors are forwarded unchanged.
 The `gpt-5.6-sol` ID may return an error for accounts without access.
 Authenticated discovery against `${CODEX_BASE_URL}/models` can add more IDs
-that match `^gpt-(?:5(?:[.][0-9]+)?|6)(?:-[a-z0-9]+)+$`, filtering out other
-providers exposed by that endpoint. A discovery failure leaves the base catalog
-in place. Spend estimates use the published standard API rates per 1M text
+that match `^gpt-[0-9]+(?:[.][0-9]+)*(?:-[a-z0-9]+)+$`, including future
+versions such as `gpt-6.1-sol`, filtering out other providers exposed by that
+endpoint. Discovery accepts Codex `slug` entries and legacy `id`, `model`, or
+`name` entries and sends the required `client_version` query parameter. The
+catalog is fetched at startup and refreshed during quota
+polling with a five-minute cache; concurrent fetches share one request. A
+discovery failure keeps the last known catalog and the base list in place.
+New models are enabled by default, unless `autoEnableNewModels` is disabled on
+the Models page. Spend estimates use the published standard API rates per 1M text
 tokens for short-context requests:
 
 | Model | Input | Cached input | Output |

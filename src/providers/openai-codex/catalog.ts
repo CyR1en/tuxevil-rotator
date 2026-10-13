@@ -14,7 +14,7 @@ export interface CodexModel {
 }
 
 // The base list contains OpenAI models published in the Codex model catalog.
-// Authenticated discovery can add provider-owned GPT-5 and GPT-6 IDs.
+// Authenticated discovery can add versioned GPT IDs without a release allowlist.
 // The Codex /models endpoint can expose models from other ChatGPT-backed
 // providers (for example Claude), so model IDs alone must be filtered before
 // they influence routing.
@@ -24,7 +24,10 @@ const CODEX_CONTEXT_WINDOW = 1_050_000;
 // Hard cap to defend against `/models` upstream reporting absurd values for
 // discovered ids. 2M is comfortably above the published 1.05M baseline.
 const CODEX_DISCOVERED_MAX_CONTEXT_WINDOW = 2_000_000;
-const CODEX_DISCOVERED_ID_PATTERN = /^gpt-(?:5(?:\.\d+)?|6)(?:-[a-z0-9]+)+$/i;
+// The upstream catalog requires a Codex protocol version, independent of our
+// package version. Keep it configurable for deployments using a newer client.
+const DEFAULT_CODEX_CLIENT_VERSION = "0.162.1";
+const CODEX_DISCOVERED_ID_PATTERN = /^gpt-\d+(?:\.\d+)*(?:-[a-z0-9]+)+$/i;
 export const CODEX_BASE_MODELS: readonly CodexModel[] = [
   { id: "gpt-6-astra", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
   { id: "gpt-6-sol", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
@@ -79,7 +82,7 @@ function parseModel(value: unknown): CodexModel | null {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const id = record.id ?? record.model ?? record.name;
+  const id = record.id ?? record.slug ?? record.model ?? record.name;
   if (!isCodexProviderModelId(id)) return null;
   const contextWindow = [record.context_window, record.contextWindow, record.context_length]
     .find((candidate) => typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0);
@@ -102,13 +105,15 @@ export async function fetchCodexCatalog(
   const base = codexBaseUrl();
   const endpoint = base.endsWith("/models") ? base : `${base}/models`;
   try {
+    const url = new URL(endpoint);
+    url.searchParams.set("client_version", process.env.CODEX_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
     };
     const accountId = getCodexAccountId(account.config);
     if (accountId) headers["chatgpt-account-id"] = accountId;
-    const response = await fetch(endpoint, {
+    const response = await fetch(url.toString(), {
       headers,
       signal: signal ?? AbortSignal.timeout(8_000),
       dispatcher: getAccountProxyDispatcher(account, CODEX_PROVIDER_ID),

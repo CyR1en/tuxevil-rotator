@@ -58,6 +58,45 @@ function makeConfig(): Config {
 }
 
 describe("v2 routing and status", () => {
+  it("refreshes the Codex catalog during quota polling and coalesces concurrent discovery", async () => {
+    const { setDiscoveredCodexModels } = await import("../src/providers/openai-codex/catalog.js");
+    const config = makeConfig();
+    config.accounts = [{ email: "catalog@example.com", credentials: [{ provider: "openai-codex", refreshToken: "refresh" }] }];
+    const rotator = new AccountRotator(config) as any;
+    rotator.stopQuotaPolling();
+    rotator.accounts[0].providerTokens = { "openai-codex": { accessToken: "catalog-token", tokenExpires: Date.now() + 60_000 } };
+    rotator.ensureValidTokenForProvider = async () => {};
+    rotator.pollAccountQuota = async () => false;
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    let model = "gpt-6.1-sol";
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({ models: [{ slug: model, context_window: 500_000 }] });
+    }) as typeof fetch;
+    try {
+      await Promise.all([rotator.primeCodexCatalog(), rotator.primeCodexCatalog()]);
+      assert.equal(calls, 1);
+      assert.ok(rotator.getCodexModels().includes(model));
+      assert.equal(providerAdapterForModel(rotator.accounts[0], model, rotator).id, "openai-codex");
+      await rotator.pollAllQuotas();
+      assert.equal(calls, 1, "fresh catalogs are cached across quota polls");
+      model = "gpt-7.1-sol";
+      rotator.lastCodexCatalogFetch = 0;
+      await rotator.pollAllQuotas();
+      await rotator.codexCatalogFetch;
+      assert.equal(calls, 2);
+      assert.ok(rotator.getCodexModels().includes(model));
+      assert.equal(providerAdapterForModel(rotator.accounts[0], model, rotator).id, "openai-codex");
+      rotator.accounts[0].disabledProviders = ["openai-codex"];
+      await rotator.primeCodexCatalog();
+      assert.equal(calls, 2, "disabled providers are not queried");
+    } finally {
+      globalThis.fetch = originalFetch;
+      setDiscoveredCodexModels([]);
+    }
+  });
+
   before(async () => {
     await initDb();
   });

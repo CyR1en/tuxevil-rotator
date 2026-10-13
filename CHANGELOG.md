@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Automatic Codex model discovery**: send the required `client_version` query parameter, accept future numbered GPT versions including `gpt-6.1-sol`, and parse Codex catalog `slug` entries. Refresh discovery during quota polling with a five-minute cache and shared concurrent requests, retaining the last catalog when discovery fails.
+
 ## [4.1.0] - 2026-10-13
 
 ### Added
