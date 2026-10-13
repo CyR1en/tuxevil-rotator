@@ -12,6 +12,7 @@ export function getModelCatalogRevision(source: ModelCatalogSource): string {
     })),
     models: listCatalogModels(source),
     autoEnableNewModels: config?.autoEnableNewModels ?? true,
+    effortRouting: config?.effortRouting ?? null,
   };
   return createHash("sha256").update(JSON.stringify(state)).digest("hex").slice(0, 32);
 }

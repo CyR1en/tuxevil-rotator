@@ -16,11 +16,10 @@ import {
 import { warnIfUsingFallbackOAuthCreds } from "./providers/google-antigravity/oauth.js";
 import { warnIfInsecureTelemetryEndpoint } from "./telemetry.js";
 import {
-  setModelSpecsOverride,
   loadResponsesStore,
   flushResponsesStore,
 } from "./compat.js";
-import { setModelAliasesOverride, setEffortRoutingOverride } from "./types.js";
+import { applyConfigOverrides } from "./config-overrides.js";
 import { readTextFile, writeTextFileAtomic } from "./storage.js";
 import { initDb, isDbConfigured } from "./db-store.js";
 import { runKeyMigrations } from "./key-migrations.js";
@@ -212,9 +211,7 @@ export async function main(): Promise<void> {
   maybeWarnAboutProxyExposure(config);
   warnIfUsingFallbackOAuthCreds();
   warnIfInsecureTelemetryEndpoint();
-  setModelSpecsOverride(config.modelSpecs ?? null);
-  setModelAliasesOverride(config.modelAliases ?? null);
-  setEffortRoutingOverride(config.effortRouting ?? null);
+  applyConfigOverrides(config);
   void loadResponsesStore();
 
   const rotator = new AccountRotator(config);

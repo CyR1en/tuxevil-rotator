@@ -78,6 +78,7 @@ import {
   type CatalogModel,
 } from "./model-catalog.js";
 import { getModelCatalogRevision } from "./model-catalog-revision.js";
+import { applyConfigOverrides } from "./config-overrides.js";
 import { logger } from "./logger.js";
 import { getAccountProxyDispatcher } from "./providers/proxy-dispatcher.js";
 import {
@@ -4458,6 +4459,7 @@ export class AccountRotator {
     const mergedAccounts = normalized.accounts.map(matchAndReuseAccount);
     this.config = { ...normalized, accounts: mergedAccounts.map((account) => account.config) };
     this.accounts = mergedAccounts;
+    applyConfigOverrides(this.config);
     this.reconcileDynamicCatalog();
     this.requestWaiterDrain();
     await saveAccountsConfig(this.config);
