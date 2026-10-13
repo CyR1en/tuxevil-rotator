@@ -2,9 +2,11 @@
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-13
+
 ### Added
 
-- **Models page**: a new dashboard page at `/dashboard/models` to manage connected providers and the models they serve.
+- **Models page**: a new dashboard page at `/dashboard/models` to manage connected providers and the models they serve. ([PR #39](https://github.com/tuxevil/tuxevil-rotator/pull/39) by [@CyR1en](https://github.com/CyR1en))
   - Turn a provider off without signing its accounts out, turn it off for one account only, or turn individual models off. Models that are off leave `/v1/models` and `model: "auto"`, and requests for them get `404 model_not_found`.
   - Set the provider order that decides who serves a model id more than one provider lists.
   - Optionally hold models a provider adds later until you review them.
@@ -25,10 +27,17 @@
 
 ### Fixed
 
+- **Dispatch-time switches**: recheck per-account provider switches after token validation in compatibility and native requests, release reservations, and re-admit another account when possible. HTTP audio transcription and WebSocket segments retain the requested model (including `whisper-1`) for dispatch-time checks, so switching it off prevents forwarding and Language Server fallback. Benchmarks also recheck switches after token validation. ([PR #39](https://github.com/tuxevil/tuxevil-rotator/pull/39) by [@CyR1en](https://github.com/CyR1en))
+- **Dashboard provider visibility**: connected providers appear on Overview even before quota data arrives; removed redundant provider grouping headings.
+- **Ollama savings estimates**: align estimated savings with official model pricing.
 - **Dashboard dev server**: `npm run dashboard:dev` no longer crashes on `GET /v1/models`.
 - **Settings writes**: writes to one settings key now run in order, so quick successive changes can no longer leave an older configuration or state on disk.
 - **Ollama quota polling**: Read remaining credits and renewal dates from `/api/balance` instead of treating the consumption histogram at `/api/usage` as quota data. Overview and account details show actual credit balances, invalid responses preserve prior quotas, and purchased credits remain routable after the included balance runs out.
 - **Codex reauthentication state**: A successful Codex login now clears the previous provider rejection and cached Codex access token, so reauthenticated accounts leave Needs attention immediately.
+
+### Contributors
+
+- Thanks to [@CyR1en](https://github.com/CyR1en) for the Models page, shared provider catalogs, routing controls, account identity handling, switch-enforcement fixes, documentation, and regression tests in [PR #39](https://github.com/tuxevil/tuxevil-rotator/pull/39).
 
 ## [4.0.0] - 2026-10-05
 
