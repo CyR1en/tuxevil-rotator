@@ -53,7 +53,8 @@ function isProviderModelKey(value: string): boolean {
 	return slash > 0 && slash < value.length - 1 && PROVIDER_ORDER.includes(value.slice(0, slash));
 }
 
-function isKnownNonGoogleModel(model: string): boolean {
+/** Whether a static Codex, OpenCode Zen or Ollama catalog ID claims this model id. */
+export function isKnownNonGoogleModel(model: string): boolean {
 	const trimmed = model.trim();
 	if (!trimmed) return false;
 	const lower = trimmed.toLowerCase();

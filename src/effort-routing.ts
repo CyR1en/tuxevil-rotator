@@ -23,7 +23,7 @@ import {
 import { getProviderAdapter, isKnownProvider } from "./providers/registry.js";
 import type { Config, EffortRoutingRule } from "./types.js";
 import { applyModelAlias } from "./types.js";
-import { validateConfig } from "./validators.js";
+import { isKnownNonGoogleModel, validateConfig } from "./validators.js";
 
 const ANTIGRAVITY = "google-antigravity";
 const EFFORT_SUFFIX = new RegExp(`^(.+)-(${EFFORT_LEVELS.join("|")})$`, "i");
@@ -126,6 +126,9 @@ function aliasConflict(source: ModelCatalogSource, alias: string, previousAlias:
   if (previousAlias !== null && fold(previousAlias) === wanted) return null;
   const listed = listCatalogModels(source).find((model) => fold(model.id) === wanted);
   if (listed) return `${listed.id} is already a model from ${providerName(listed.providerId)}. Pick an ID that isn't in use.`;
+  // The startup validator refuses IDs other providers claim statically even
+  // while no account lists them; say so beside the field instead of in a toast.
+  if (isKnownNonGoogleModel(alias)) return `${alias} is a model ID of another provider. Pick an ID that isn't in use.`;
   if (fold(applyModelAlias(alias)) !== wanted) {
     return `${alias} is already a model alias for ${applyModelAlias(alias)}. Pick an ID that isn't in use.`;
   }

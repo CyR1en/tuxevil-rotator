@@ -395,14 +395,21 @@ function EffortRouteEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [format, setFormat] = useState<RequestFormat>("chat");
-  const [justSaved, setJustSaved] = useState(() => route !== null && savedNotice !== null && fold(savedNotice.alias) === fold(route.alias));
-  const [announcement, setAnnouncement] = useState(() => {
+  // The confirmation a create or rename carried over, consumed on mount.
+  const [notice] = useState(() => {
     const message = route !== null && savedNotice !== null && fold(savedNotice.alias) === fold(route.alias) ? savedNotice.message : "";
     savedNotice = null;
     return message;
   });
-  const [focusRequest, setFocusRequest] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(notice !== "");
+  const [announcement, setAnnouncement] = useState("");
+  // That remount drops focus to the page behind the drawer; put it back on
+  // the title, and announce the outcome once the live region is in place.
+  const [focusRequest, setFocusRequest] = useState<string | null>(notice ? "effort-editor-title" : null);
   const summaryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (notice) setAnnouncement(notice);
+  }, [notice]);
 
   const dirty = isDraftDirty(draft, saved ?? initial);
   dirtyRef.current = dirty;
@@ -437,7 +444,8 @@ function EffortRouteEditor({
   const preview = previewEffortDraft(draft, state);
   const options = effortModelOptions(state, draft.alias);
   const offerFamily = familyForAlias(draft, state.effortSuggestions);
-  const renamed = draft.original !== null && draft.alias.trim() !== "" && draft.alias.trim() !== draft.original;
+  // Clients match IDs case-insensitively, so a change of case alone breaks nobody.
+  const renamed = draft.original !== null && draft.alias.trim() !== "" && fold(draft.alias) !== fold(draft.original);
   const status = route ? effortRouteStatus(route, names) : null;
   const creating = draft.original === null;
 

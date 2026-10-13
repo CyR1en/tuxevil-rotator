@@ -4,15 +4,16 @@
 
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 import type { ModelCatalogResponse } from "../src/dashboard-types.js";
+import type { RequestBody } from "../src/proxy.js";
 import type { AccountRotator } from "../src/rotator.js";
-import type { Config, EffortRoutingRule } from "../src/types.js";
+import type { AccountRuntime, Config, EffortRoutingRule } from "../src/types.js";
 
 const fixtureDir = mkdtempSync(join(tmpdir(), "rotator-effort-editor-"));
 const envOverrides = {
@@ -25,7 +26,7 @@ const envOverrides = {
 const previousEnv = new Map(Object.keys(envOverrides).map((key) => [key, process.env[key]]));
 Object.assign(process.env, envOverrides);
 
-const [effort, modelCatalog, types, compat, dashboard, revision, overrides, adminAuth, proxy, versionChecker, notificationPoller, rotatorModule, dbStore] =
+const [effort, modelCatalog, types, compat, dashboard, revision, overrides, adminAuth, proxy, versionChecker, notificationPoller, rotatorModule, dbStore, registry] =
   await Promise.all([
     import("../src/effort-routing.js"),
     import("../src/model-catalog.js"),
@@ -40,6 +41,7 @@ const [effort, modelCatalog, types, compat, dashboard, revision, overrides, admi
     import("../src/notification-poller.js"),
     import("../src/rotator.js"),
     import("../src/db-store.js"),
+    import("../src/providers/registry.js"),
   ]);
 
 const key = (id: string) => `google-antigravity/${id}`;
@@ -163,14 +165,28 @@ describe("effort route plans", () => {
     assert.ok(!plan.ok && /already a model alias for gemini-3-flash/.test(plan.fieldErrors!.alias));
   });
 
-  it("refuses a route the startup validator would reject", () => {
+  it("refuses an ID another provider claims statically, beside the field", () => {
     const plan = effort.planEffortRouteSave(makeSource(), null, {
       alias: "made-up-free",
       defaultEffort: "low",
       targets: { low: "gemini-3-flash" },
     });
     assert.ok(!plan.ok && plan.status === 400);
-    assert.match(plan.ok ? "" : plan.error, /non-Antigravity model/);
+    assert.match(plan.ok ? "" : plan.fieldErrors!.alias, /made-up-free is a model ID of another provider/);
+  });
+
+  it("refuses a route the startup validator would reject", () => {
+    // An older config may name a route after a model; a new route may not target it.
+    const source = makeSource({
+      effortRouting: { "gemini-3.8-flash-low": { defaultEffort: "medium", targets: { medium: "gemini-3.8-flash-medium" } } },
+    });
+    const plan = effort.planEffortRouteSave(source, null, {
+      alias: "fresh",
+      defaultEffort: "low",
+      targets: { low: "gemini-3.8-flash-low" },
+    });
+    assert.ok(!plan.ok && plan.status === 400);
+    assert.match(plan.ok ? "" : plan.error, /chains into effort-routing alias/);
   });
 
   it("renames a route in place and moves its switch", () => {
@@ -342,13 +358,27 @@ describe("/api/catalog/effort-routes", () => {
     assert.ok(ids.includes("gemini-3.8-flash"));
     assert.ok(!ids.includes("gemini-3.8-flash-high"), "targets leave /v1/models once the route is live");
 
+    const off = await call("POST", "/api/catalog/models/off", { models: [key("gemini-3.8-flash")] });
+    assert.equal(off.status, 200);
+    assert.deepEqual(((await off.json()) as ModelCatalogResponse).effortRoutes.map((route) => [route.enabled, route.status]), [[false, "off"]]);
+    assert.ok(!(await listed()).includes("gemini-3.8-flash"), "an off route leaves /v1/models");
+
     const renamed = await call("PUT", "/api/catalog/effort-routes/gemini-3.8-flash", {
       alias: "flash",
       defaultEffort: "high",
       targets: { high: "gemini-3.8-flash-high" },
     });
     assert.equal(renamed.status, 200);
-    assert.deepEqual(((await renamed.json()) as ModelCatalogResponse).effortRoutes.map((route) => route.alias), ["flash"]);
+    assert.deepEqual(
+      ((await renamed.json()) as ModelCatalogResponse).effortRoutes.map((route) => [route.alias, route.enabled, route.status]),
+      [["flash", false, "off"]],
+      "a rename keeps the route's switch",
+    );
+    assert.ok(!(await listed()).includes("flash"));
+    assert.ok((await listed()).includes("gemini-3.8-flash-high"), "an off route does not hide its targets");
+
+    const on = await call("POST", "/api/catalog/models/on", { models: [key("flash")] });
+    assert.deepEqual(((await on.json()) as ModelCatalogResponse).effortRoutes.map((route) => [route.alias, route.status]), [["flash", "live"]]);
     assert.ok((await listed()).includes("flash"));
 
     const removed = await call("DELETE", "/api/catalog/effort-routes/flash");
@@ -364,6 +394,12 @@ describe("/api/catalog/effort-routes", () => {
     const body = (await refused.json()) as { ok: false; error: string; fieldErrors: Record<string, string> };
     assert.equal(body.ok, false);
     assert.deepEqual(Object.keys(body.fieldErrors).sort(), ["alias", "targets.low"]);
+    const unchanged = (await (await call("GET", "/api/catalog")).json()) as ModelCatalogResponse;
+    assert.deepEqual(
+      unchanged.effortRoutes.map((route) => [route.alias, route.defaultEffort, route.targets.map((target) => target.model)]),
+      [["gemini-3.8-flash", "medium", Object.values(FLASH_38.targets)]],
+      "a refused change leaves the routes as they were",
+    );
 
     assert.equal((await call("PUT", "/api/catalog/effort-routes/missing", { defaultEffort: "low", targets: { low: "gemini-3-flash" } })).status, 404);
     assert.equal((await call("DELETE", "/api/catalog/effort-routes/missing")).status, 404);
@@ -403,17 +439,89 @@ describe("effort routing applies without a restart", () => {
     assert.equal(types.getEffortRoutingRule("gemini-3.8-flash"), undefined);
   });
 
+  it("applies effortRouting from PUT /api/config to /v1/models and the next request", async () => {
+    const rotator = new rotatorModule.AccountRotator(baseConfig());
+    rotator.stopQuotaPolling();
+    const account = (rotator as unknown as { accounts: AccountRuntime[] }).accounts[0];
+    account.accessToken = "test-access-token";
+    account.tokenExpires = Date.now() + 3_600_000;
+    account.quota = [{
+      modelKey: "gemini",
+      displayName: "gemini",
+      percentRemaining: 100,
+      resetTime: new Date(Date.now() + 3_600_000).toISOString(),
+      timerType: "5h",
+      providerId: "google-antigravity",
+    }];
+    const google = registry.getProviderAdapter("google-antigravity");
+    const forwarded: RequestBody[] = [];
+    mock.method(google, "ensureValidToken", async () => {});
+    mock.method(google, "forwardRequest", async (_account: AccountRuntime, body: RequestBody) => {
+      forwarded.push(body);
+      return {
+        response: new Response('data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}\n\n', {
+          headers: { "content-type": "text/event-stream" },
+        }),
+        endpoint: "mock://google",
+      };
+    });
+    adminAuth.setPersistedAdminToken("effort-admin-token");
+    const server = proxy.startProxy(rotator, 0, "127.0.0.1");
+    await once(server, "listening");
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const listed = async () =>
+      ((await (await fetch(`${base}/v1/models`)).json()) as { data: Array<{ id: string }> }).data.map((entry) => entry.id);
+    const putConfig = (config: Config) =>
+      fetch(`${base}/api/config`, {
+        method: "PUT",
+        headers: { authorization: "Bearer effort-admin-token", "content-type": "application/json" },
+        body: JSON.stringify({ ...config, proxyPort: 51200 }),
+      });
+    try {
+      assert.ok(!(await listed()).includes("gemini-3.8-flash"));
+      assert.equal((await putConfig({ ...baseConfig(), effortRouting: { "gemini-3.8-flash": FLASH_38 } })).status, 200);
+      const ids = await listed();
+      assert.ok(ids.includes("gemini-3.8-flash"), "the alias is listed without a restart");
+      assert.ok(!ids.includes("gemini-3.8-flash-high"), "its targets are hidden without a restart");
+
+      const chat = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-skip-safety-jitter": "true" },
+        body: JSON.stringify({ model: "gemini-3.8-flash", reasoning_effort: "high", messages: [{ role: "user", content: "hi" }] }),
+      });
+      assert.equal(chat.status, 200, await chat.text());
+      assert.equal(forwarded.length, 1);
+      assert.equal(forwarded[0].model, "gemini-3.8-flash-high");
+      assert.equal(forwarded[0].displayModel, "gemini-3.8-flash");
+
+      assert.equal((await putConfig(baseConfig())).status, 200);
+      assert.ok(!(await listed()).includes("gemini-3.8-flash"), "removing the rules applies at once too");
+      assert.equal(types.getEffortRoutingRule("gemini-3.8-flash"), undefined);
+    } finally {
+      mock.restoreAll();
+      adminAuth.setPersistedAdminToken(null);
+      versionChecker.stopVersionChecker();
+      notificationPoller.stopNotificationPoller();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await rotator.flushPendingStateSave();
+    }
+  });
+
   it("saves and deletes routes from the Models page", async () => {
     const rotator = new rotatorModule.AccountRotator(baseConfig());
     rotator.stopQuotaPolling();
+    const stored = () => (JSON.parse(readFileSync(join(fixtureDir, "accounts.json"), "utf8")) as Config).effortRouting;
     const saved = await rotator.saveEffortRoute(null, { alias: "gemini-3.8-flash", defaultEffort: "medium", targets: FLASH_38.targets });
     assert.ok(saved.ok, JSON.stringify(saved));
     assert.deepEqual(rotator.getConfig().effortRouting, { "gemini-3.8-flash": FLASH_38 });
+    assert.deepEqual(stored(), { "gemini-3.8-flash": FLASH_38 });
     assert.equal(types.getEffortRoutingRule("gemini-3.8-flash")?.defaultEffort, "medium");
 
     const refused = await rotator.saveEffortRoute(null, { alias: "gemini-3.8-flash", defaultEffort: "low", targets: {} });
     assert.equal(refused.ok, false);
     assert.deepEqual(rotator.getConfig().effortRouting, { "gemini-3.8-flash": FLASH_38 }, "a refused change saves nothing");
+    assert.deepEqual(stored(), { "gemini-3.8-flash": FLASH_38 });
 
     const deleted = await rotator.deleteEffortRoute("gemini-3.8-flash");
     assert.ok(deleted.ok);
