@@ -65,17 +65,22 @@ Every change answers with the updated catalog, the same shape as `GET /api/catal
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/catalog` | Providers in routing order and every provider's models, each with `offReason` (`provider`, `model`, `review` or `null`) and whether requests for its id go to that provider (`routed`) |
+| `GET` | `/api/catalog` | Providers in routing order and every provider's models, each with `offReason` (`provider`, `model`, `review` or `null`) and whether requests for its id go to that provider (`routed`). Also `effortRoutes` (each effort-routed id with its levels, default and `status`) and `effortSuggestions` (families of effort variants no route uses yet) |
 | `POST` | `/api/catalog/refresh` | Re-read the Ollama and Codex model lists now |
 | `POST` | `/api/catalog/providers/<provider>/on` · `/off` | Turn a provider on or off for routing |
 | `PUT` | `/api/catalog/provider-order` | Body `{ "order": ["ollama", …] }`; providers left out follow in the default order |
 | `POST` | `/api/catalog/models/on` · `/off` | Body `{ "models": ["ollama/gpt-oss:20b", …] }` |
 | `POST` | `/api/catalog/new-models/on` · `/off` | Whether models a provider adds later turn on automatically |
 | `POST` | `/api/catalog/accounts/<accountId>/<provider>/on` · `/off` | Turn one provider on or off for one account |
+| `POST` | `/api/catalog/effort-routes` | Create an effort-routed id. Body `{ "alias": "gemini-3.8-flash", "defaultEffort": "medium", "targets": { "low": "gemini-3.8-flash-low", … } }` |
+| `PUT` | `/api/catalog/effort-routes/<alias>` | Replace an effort-routed id with the same body; a different `alias` renames it |
+| `DELETE` | `/api/catalog/effort-routes/<alias>` | Delete an effort-routed id |
 
 Use the account's `id` from `/api/status` or `/api/dashboard/snapshot` (`overview.accounts`) and URL-encode it as one path segment. Treat it as opaque: accounts with the same email can have different project or workspace identities. A legacy email still works when it identifies exactly one account. Unknown or stale targets, ambiguous emails, and accounts without the requested provider credential return `404` without changing any switch.
 
 Account provider switches are persisted by exact identity in the state repository and survive account reordering. Legacy email-keyed switches are restored only for a unique email. Credential or provider-list edits can change the account ID, so clients should fetch a fresh snapshot after those edits; reload restores saved switches only for matching identities. Refreshing a token for the same project or workspace preserves its identity.
+
+A refused effort route change returns `400` with `{ "ok": false, "error": "…", "fieldErrors": { … } }`, keyed by `alias`, `defaultEffort`, `targets` or `targets.<level>`; an unknown `<alias>` returns `404`. Turn an effort-routed id off or on through `/api/catalog/models/off` · `/on` with `google-antigravity/<alias>`.
 
 ### Virtual Key Management (requires PostgreSQL)
 
