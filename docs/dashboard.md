@@ -97,7 +97,7 @@ The Models page decides which providers serve traffic and which models clients c
 
 Clicking a provider opens its drawer at `/dashboard/models/<provider>`: its status with **Sign in again** for a rejected credential, the routing switch, its accounts with a **Use for** switch that turns the provider off for that account only (the account's other providers keep serving), and its models.
 
-Clicking an effort-routed ID opens its editor at `/dashboard/models/effort/<id>`; **New effort model** and **Set up** open it at `/dashboard/models/effort`. Pick a Google Antigravity model for each effort level clients may ask for (a suggested family fills its variants in) and choose the default for requests without a usable effort. **How requests resolve** shows where each level, and everything else, goes, how Claude-style `/v1/messages` requests pick a level, and an example request to copy. **What clients see** lists what changes in `/v1/models` and offers to turn on a variant that is off. Saving applies to new requests immediately.
+Clicking an effort-routed ID opens its editor at `/dashboard/models/effort/<id>`; **New effort model** and **Set up** open it at `/dashboard/models/effort`. Pick a Google Antigravity model for each effort level clients may ask for (a suggested family fills its variants in) and choose the default for requests without a usable effort. **How requests resolve** shows where each level, and everything else, goes, how Claude-style `/v1/messages` requests pick a level, and an example request to copy. **What clients see** lists what changes in `/v1/models` and offers to turn on a variant that is off. Saving applies to new requests immediately. Closing the editor, Back, Forward or leaving the page with unsaved changes asks first.
 
 ## Requests
 

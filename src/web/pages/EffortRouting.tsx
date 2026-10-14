@@ -43,7 +43,7 @@ import {
 import { providerMark } from "../lib/models.js";
 import { confirmAction, toast } from "../state/actions.js";
 import { api, ApiError } from "../state/api.js";
-import { effortPath, navigate, query } from "../state/router.js";
+import { effortEditorKey, effortPath, guardNavigation, location, navigate, query } from "../state/router.js";
 import { overview, refreshSnapshot } from "../state/store.js";
 import { Icon } from "../components/icons.js";
 import { Drawer, Menu } from "../components/overlays.js";
@@ -315,23 +315,37 @@ export function EffortRouteDrawer({
 }): JSX.Element {
   const dirty = useRef(false);
   const from = query.value.get("from");
-  const confirmDiscard = async () =>
-    !dirty.current ||
-    (await confirmAction({
+  const key = effortEditorKey(location.value);
+  const confirmDiscard = async () => {
+    if (!dirty.current) return true;
+    const discard = await confirmAction({
       title: "Discard your changes?",
       body: "Your changes to this effort model aren't saved yet.",
       confirmLabel: "Discard",
       danger: true,
-    }));
+    });
+    // The navigation that follows must not ask again.
+    if (discard) dirty.current = false;
+    return discard;
+  };
   const close = async () => {
     if (await confirmDiscard()) onClose();
   };
+
+  // Back, Forward, links and reloads that would replace this editor ask first.
+  useEffect(() => {
+    if (key === null) return;
+    return guardNavigation({
+      blocks: (target) => dirty.current && (target === null || effortEditorKey(target) !== key),
+      confirm: confirmDiscard,
+    });
+  }, [key]);
 
   return (
     <Drawer open={Boolean(match)} onClose={onClose} label="Effort model" confirmClose={confirmDiscard}>
       {match && (
         <EffortRouteEditor
-          key={match.alias ?? `new:${from ?? ""}`}
+          key={key ?? ""}
           state={state}
           alias={match.alias}
           from={match.alias === null ? from : null}

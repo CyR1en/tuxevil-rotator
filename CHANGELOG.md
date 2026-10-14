@@ -7,7 +7,7 @@
 - **Effort routing editor**: the Models page gains an **Effort routing** panel and editor, so effort aliases no longer need hand-edited JSON.
   - It suggests model families with effort variants, such as `gemini-3.6-flash-low`, `-medium` and `-high`, and sets them up in one step.
   - Pick a model for each effort level and choose the default. The editor previews where every kind of request goes and what changes in `/v1/models`.
-  - An alias can be turned off, renamed or deleted, and the Models table tags the variants each alias uses.
+  - An alias can be turned off, renamed or deleted, and the Models table tags the variants each alias uses. Leaving the editor with unsaved changes, including with Back or Forward, asks first.
   - New `POST`, `PUT` and `DELETE /api/catalog/effort-routes` admin endpoints back it, and `/api/catalog` now reports effort routes and suggestions.
 - **Claude-style effort routing**: `/v1/messages` requests now pick an effort alias's target. `output_config.effort` decides first. Without it, `thinking.budget_tokens` does (under 4,000 is `low`, under 16,000 is `medium`, otherwise `high`), and disabled thinking asks for `low`. Previously these requests always used the default.
 

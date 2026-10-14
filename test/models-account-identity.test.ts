@@ -67,7 +67,7 @@ function browserContext(): Record<string, unknown> {
   return {
     URL,
     URLSearchParams,
-    window: { location: { pathname: "/dashboard/models/google-antigravity", search: "" }, addEventListener() {} },
+    window: { location: { pathname: "/dashboard/models/google-antigravity", search: "" }, history: { state: null }, addEventListener() {} },
     document: { documentElement: { removeAttribute() {}, setAttribute() {} } },
     setInterval: () => 0,
     clearInterval() {},

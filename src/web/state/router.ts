@@ -17,7 +17,7 @@ export interface RouteMatch {
   effort: { alias: string | null } | null;
 }
 
-interface LocationState {
+export interface LocationState {
   path: string;
   search: string;
 }
@@ -28,8 +28,79 @@ function readLocation(): LocationState {
 
 export const location = signal<LocationState>(readLocation());
 
+/**
+ * Asked before navigation would lose something, such as an editor's unsaved
+ * changes. The target is null when the page itself is leaving (reload, close).
+ */
+export interface NavigationGuard {
+  blocks(target: LocationState | null): boolean;
+  /** Whether to leave anyway. */
+  confirm(): Promise<boolean>;
+}
+
+let guard: NavigationGuard | null = null;
+let asking = false;
+
+/** Guard navigation until the returned function is called. */
+export function guardNavigation(next: NavigationGuard): () => void {
+  guard = next;
+  return () => {
+    if (guard === next) guard = null;
+  };
+}
+
+function blocked(target: LocationState | null): boolean {
+  return guard?.blocks(target) ?? false;
+}
+
+async function askToLeave(leave: () => void): Promise<void> {
+  const current = guard;
+  if (!current || asking) return;
+  asking = true;
+  try {
+    if (await current.confirm()) leave();
+  } finally {
+    asking = false;
+  }
+}
+
+// Each history entry the router adds records its position (the first one has
+// none and counts as 0), so a Back or Forward the guard blocks can be undone
+// with history.go() without dropping entries.
+function readPosition(): number {
+  const state = window.history.state as { position?: unknown } | null | undefined;
+  return typeof state?.position === "number" ? state.position : 0;
+}
+
+let position = readPosition();
+// Traversals the router makes itself: undoing a blocked one, then redoing it
+// once the user chooses to leave.
+let undoing = false;
+let redoing = false;
+
 window.addEventListener("popstate", () => {
+  const from = position;
+  position = readPosition();
+  if (undoing) {
+    undoing = false;
+    return;
+  }
+  const delta = from - position;
+  if (!redoing && delta !== 0 && (asking || blocked(readLocation()))) {
+    undoing = true;
+    window.history.go(delta);
+    void askToLeave(() => {
+      redoing = true;
+      window.history.go(-delta);
+    });
+    return;
+  }
+  redoing = false;
   location.value = readLocation();
+});
+
+window.addEventListener("beforeunload", (event) => {
+  if (blocked(null)) event.preventDefault();
 });
 
 function decodeSegment(segment: string | undefined): string | null {
@@ -62,8 +133,21 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
   const target = new URL(to, window.location.origin);
   const next = target.pathname + target.search;
   if (next === window.location.pathname + window.location.search) return;
+  if (blocked({ path: target.pathname, search: target.search })) {
+    void askToLeave(() => go(target, options.replace ?? false));
+    return;
+  }
+  go(target, options.replace ?? false);
+}
+
+function go(target: URL, replace: boolean): void {
+  const next = target.pathname + target.search;
   const pathChanged = target.pathname !== window.location.pathname;
-  window.history[options.replace ? "replaceState" : "pushState"](null, "", next);
+  if (replace) window.history.replaceState({ position }, "", next);
+  else {
+    position += 1;
+    window.history.pushState({ position }, "", next);
+  }
   location.value = readLocation();
   const match = matchRoute(target.pathname);
   if (pathChanged && !match.account && !match.provider && !match.effort) {
@@ -103,6 +187,16 @@ export function effortPath(alias: string | null, from?: string): string {
   if (alias === null && from) search.set("from", from);
   const text = search.toString();
   return `${BASE}/models/effort${alias === null ? "" : `/${encodeURIComponent(alias)}`}${text ? `?${text}` : ""}`;
+}
+
+/**
+ * Which effort editor a location opens, or null for none. The editor keeps
+ * its draft only while this stays the same.
+ */
+export function effortEditorKey(target: LocationState): string | null {
+  const effort = matchRoute(target.path).effort;
+  if (!effort) return null;
+  return effort.alias ?? `new:${new URLSearchParams(target.search).get("from") ?? ""}`;
 }
 
 /** Legacy routes from the old dashboard. */
