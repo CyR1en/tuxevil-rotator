@@ -1,4 +1,4 @@
-// Effort levels shared by the effort router and the dashboard's editor.
+// Effort levels and alias rules shared by the effort router and the dashboard's editor.
 // Keep this module free of imports: the browser bundle uses it too.
 
 /** Standard effort levels, lowest first. Custom level names sort after these. */
@@ -27,4 +27,17 @@ export function orderEffortLevels(levels: Iterable<string>): string[] {
     ...EFFORT_LEVELS.filter((level) => all.includes(level)),
     ...all.filter((level) => !standard.includes(level)),
   ];
+}
+
+/**
+ * Why `alias` can never name an effort route, or null. The compatibility
+ * endpoints answer `auto` with automatic model selection before effort routing
+ * runs, and browsers resolve `.` and `..` out of the dashboard's URLs, so such
+ * a route could neither serve requests nor be edited.
+ */
+export function reservedEffortAlias(alias: string): string | null {
+  const id = alias.trim();
+  if (id.toLowerCase() === "auto") return `${id} is reserved for automatic model selection. Pick another ID.`;
+  if (id === "." || id === "..") return `“${id}” can't be a model ID. Pick another one.`;
+  return null;
 }

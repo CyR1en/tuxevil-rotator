@@ -161,6 +161,15 @@ describe("effort routing editor", () => {
     assert.equal(clash.rows[added.rowId].live, true);
   });
 
+  it("flags auto, . and .. as soon as they're typed", () => {
+    const state = catalog([route()]);
+    const typed = (alias: string) => validateEffortDraft(setDraftAlias(createEffortDraft(null), alias), state, NAMES).alias;
+    assert.deepEqual(typed("AUTO"), { message: "AUTO is reserved for automatic model selection. Pick another ID.", live: true });
+    assert.deepEqual(typed("."), { message: "“.” can't be a model ID. Pick another one.", live: true });
+    assert.deepEqual(typed(".."), { message: "“..” can't be a model ID. Pick another one.", live: true });
+    assert.equal(typed("auto-flash"), null);
+  });
+
   it("puts a refused save's field errors beside their fields", () => {
     const draft = createEffortDraft(route(), "gemini-3.8-flash");
     const errors = draftErrorsFromServer(draft, {

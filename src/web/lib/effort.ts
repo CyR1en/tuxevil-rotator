@@ -13,6 +13,7 @@ import {
   CLAUDE_THINKING_DISABLED_EFFORT,
   EFFORT_LEVELS,
   orderEffortLevels,
+  reservedEffortAlias,
 } from "../../effort-levels.js";
 import type { Tone } from "./status.js";
 
@@ -283,8 +284,10 @@ export function validateEffortDraft(
   const errors: DraftErrors = { alias: null, rows: {}, form: null };
   const alias = draft.alias.trim();
   const keepsName = draft.original !== null && fold(draft.original) === fold(alias);
+  const reserved = reservedEffortAlias(alias);
   if (!alias) errors.alias = { message: "Enter the model ID clients will call.", live: false };
   else if (/\s/.test(alias)) errors.alias = { message: "Model IDs can't contain spaces.", live: true };
+  else if (reserved) errors.alias = { message: reserved, live: true };
   else if (catalog.effortRoutes.some((route) => fold(route.alias) === fold(alias) && route.alias !== draft.original)) {
     errors.alias = { message: `Another effort model already uses ${alias}.`, live: true };
   } else if (!keepsName) {

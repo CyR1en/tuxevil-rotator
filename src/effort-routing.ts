@@ -11,7 +11,7 @@ import type {
   CatalogEffortTarget,
   EffortRouteStatus,
 } from "./dashboard-types.js";
-import { EFFORT_LEVELS, orderEffortLevels } from "./effort-levels.js";
+import { EFFORT_LEVELS, orderEffortLevels, reservedEffortAlias } from "./effort-levels.js";
 import {
   isProviderTurnedOff,
   isRequestOff,
@@ -214,7 +214,8 @@ export function planEffortRouteSave(
   if (!alias) fieldErrors.alias = "Enter the model ID clients will call.";
   else if (/\s/.test(alias)) fieldErrors.alias = "Model IDs can't contain spaces.";
   else {
-    const conflict = aliasConflict(source, alias, existing);
+    // Reserved IDs are refused even for a route that keeps its name: it can't work.
+    const conflict = reservedEffortAlias(alias) ?? aliasConflict(source, alias, existing);
     if (conflict) fieldErrors.alias = conflict;
   }
 

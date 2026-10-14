@@ -175,6 +175,27 @@ describe("effort route plans", () => {
     assert.match(plan.ok ? "" : plan.fieldErrors!.alias, /made-up-free is a model ID of another provider/);
   });
 
+  it("refuses auto, . and .. in any case, even for a route keeping its name", () => {
+    // Compatibility endpoints treat auto as automatic model selection before effort
+    // routing runs, and browsers resolve . and .. out of the editor's and API's URLs.
+    const source = makeSource({ effortRouting: { "gemini-3.8-flash": FLASH_38, auto: FLASH_38 } });
+    const body = (alias?: string) => ({ ...(alias === undefined ? {} : { alias }), defaultEffort: "low", targets: { low: "gemini-3-flash" } });
+    const aliasError = (plan: ReturnType<typeof effort.planEffortRouteSave>) => {
+      assert.ok(!plan.ok && plan.status === 400, JSON.stringify(plan));
+      assert.deepEqual(Object.keys(plan.ok ? {} : plan.fieldErrors ?? {}), ["alias"]);
+      return plan.ok ? "" : plan.fieldErrors!.alias;
+    };
+    for (const alias of ["auto", "AUTO", " Auto ", ".", ".."]) {
+      aliasError(effort.planEffortRouteSave(source, null, body(alias)));
+      aliasError(effort.planEffortRouteSave(source, "gemini-3.8-flash", body(alias)));
+    }
+    assert.equal(aliasError(effort.planEffortRouteSave(source, null, body("AUTO"))), "AUTO is reserved for automatic model selection. Pick another ID.");
+    assert.equal(aliasError(effort.planEffortRouteSave(source, null, body(".."))), "“..” can't be a model ID. Pick another one.");
+    assert.match(aliasError(effort.planEffortRouteSave(source, "auto", body())), /reserved for automatic model selection/);
+    assert.ok(effort.planEffortRouteSave(source, "auto", body("auto-flash")).ok, "a reserved route can be renamed");
+    assert.ok(effort.planEffortRouteSave(source, null, body("...")).ok, "only . and .. are dot segments");
+  });
+
   it("refuses a route the startup validator would reject", () => {
     // An older config may name a route after a model; a new route may not target it.
     const source = makeSource({
@@ -416,6 +437,17 @@ describe("/api/catalog/effort-routes", () => {
     const wrong = await call("PATCH", "/api/catalog/effort-routes/gemini-3.8-flash");
     assert.equal(wrong.status, 405);
     assert.equal(wrong.headers.get("allow"), "PUT, DELETE");
+  });
+
+  it("refuses auto, . and .. with an error on the ID field", async () => {
+    const { call } = await start(makeSource());
+    for (const alias of ["Auto", ".", ".."]) {
+      const refused = await call("POST", "/api/catalog/effort-routes", { alias, defaultEffort: "low", targets: { low: "gemini-3-flash" } });
+      assert.equal(refused.status, 400, alias);
+      const body = (await refused.json()) as { ok: false; fieldErrors: Record<string, string> };
+      assert.deepEqual(Object.keys(body.fieldErrors), ["alias"], alias);
+    }
+    assert.deepEqual(((await (await call("GET", "/api/catalog")).json()) as ModelCatalogResponse).effortRoutes, []);
   });
 
   it("requires admin auth", async () => {
