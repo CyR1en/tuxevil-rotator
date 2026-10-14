@@ -19,6 +19,8 @@ function browser(path: string) {
   const listeners = new Map<string, (event: unknown) => void>();
   const entries: Array<{ url: URL; state: unknown }> = [{ url: new URL(path, origin), state: null }];
   let index = 0;
+  // Where the last traversal still on its way is going.
+  let heading: number | null = null;
   const history = {
     get state() {
       return entries[index].state;
@@ -31,10 +33,16 @@ function browser(path: string) {
       entries[index] = { url: new URL(url, origin), state };
     },
     // Like a browser, the entry changes and popstate fires in a later task.
+    // Like Chromium, a go() made while another is still on its way counts
+    // from where that one is going, and is dropped if it leads back to the
+    // entry the page is on.
     go(delta: number) {
+      const target = (heading ?? index) + delta;
+      if (target === index || !entries[target]) return;
+      heading = target;
       setTimeout(() => {
-        if (!entries[index + delta]) return;
-        index += delta;
+        if (heading === target) heading = null;
+        index = target;
         listeners.get("popstate")?.({});
       });
     },
@@ -117,19 +125,23 @@ describe("Models effort route editor navigation", () => {
 
 describe("Unsaved effort editor navigation", () => {
   const ALIAS = "gemini-3.8-flash";
+  const EDITOR = `/dashboard/models/effort/${ALIAS}`;
 
   /**
-   * Guard the open editor the way the drawer does. `answers` are the replies
-   * to "Discard your changes?", in order.
+   * Guard the open editor the way the drawer does. "Discard your changes?"
+   * takes the next of `answers` at once; with none left, it waits for
+   * `reply()`, the way it waits for the user.
    */
-  function guardEditor(router: Router, answers: boolean[]) {
+  function guardEditor(page: ReturnType<typeof browser>, answers: boolean[] = []) {
+    const { router } = page;
     const editor = { dirty: true, asked: 0 };
+    let reply: (discard: boolean) => void = () => assert.fail("nothing was asked");
     const key = router.effortEditorKey(router.location.value);
     router.guardNavigation({
       blocks: (target) => editor.dirty && (target === null || router.effortEditorKey(target) !== key),
       confirm: async () => {
         editor.asked += 1;
-        const discard = answers.shift() ?? false;
+        const discard = answers.shift() ?? (await new Promise<boolean>((resolve) => (reply = resolve)));
         if (discard) editor.dirty = false;
         return discard;
       },
@@ -137,63 +149,78 @@ describe("Unsaved effort editor navigation", () => {
     // The editor and its draft stay mounted while the route keeps naming it.
     const editors: Array<string | null> = [];
     router.route.subscribe((match) => editors.push(match.effort?.alias ?? null));
-    return { editor, editors };
+    return { ...page, editor, editors, answers, reply: (discard: boolean) => reply(discard) };
   }
 
-  function openDirtyEditor(start: string, answers: boolean[]) {
+  function openDirtyEditor(start: string, answers: boolean[] = []) {
     const page = browser(start);
     page.router.navigate(page.router.effortPath(ALIAS));
-    return { ...page, ...guardEditor(page.router, answers) };
+    return guardEditor(page, answers);
   }
 
-  it("asks before Back discards edits: cancelling keeps the editor, confirming leaves it", async () => {
-    const { router, window, history, entries, editor, editors } = openDirtyEditor("/dashboard/models?filter=effort", [false, true]);
-    const stack = entries();
+  // A user answers once the browser is back at the editor. A confirmation
+  // that resolves at once answers first, while the router's undo of the Back
+  // or Forward is still on its way.
+  for (const timing of ["later", "at once"] as const) {
+    /** Press Back or Forward and answer "Discard your changes?" with `discard`. */
+    const press = async (page: ReturnType<typeof guardEditor>, direction: "back" | "forward", discard: boolean) => {
+      if (timing === "at once") page.answers.push(discard);
+      page.history[direction]();
+      await settle();
+      if (timing === "later") {
+        assert.equal(page.window.location.pathname, EDITOR, "the URL is back at the editor while asking");
+        page.reply(discard);
+        await settle();
+      }
+    };
 
-    history.back();
-    await settle();
-    assert.equal(editor.asked, 1);
-    assert.equal(window.location.pathname, `/dashboard/models/effort/${ALIAS}`, "the URL goes back to the editor");
-    assert.equal(router.route.value.effort?.alias, ALIAS);
-    assert.deepEqual(editors, [ALIAS], "the editor never unmounted, so its edits are kept");
-    assert.deepEqual(entries(), stack, "no history entries are lost");
+    it(`asks before Back discards edits, answered ${timing}: cancelling keeps the editor, confirming leaves it`, async () => {
+      const page = openDirtyEditor("/dashboard/models?filter=effort");
+      const { router, window, entries, editor, editors } = page;
+      const stack = entries();
 
-    history.back();
-    await settle();
-    assert.equal(editor.asked, 2);
-    assert.equal(window.location.pathname + window.location.search, "/dashboard/models?filter=effort");
-    assert.equal(router.route.value.effort, null, "the editor closes and its edits are discarded");
-    assert.deepEqual(entries(), stack);
-  });
+      await press(page, "back", false);
+      assert.equal(editor.asked, 1);
+      assert.equal(window.location.pathname, EDITOR, "the URL goes back to the editor");
+      assert.equal(router.route.value.effort?.alias, ALIAS);
+      assert.deepEqual(editors, [ALIAS], "the editor never unmounted, so its edits are kept");
+      assert.deepEqual(entries(), stack, "no history entries are lost");
 
-  it("asks before Forward discards edits", async () => {
-    const { router, window, history } = browser("/dashboard/models");
-    router.navigate(router.effortPath(ALIAS));
-    router.navigate("/dashboard/requests");
-    history.back();
-    await settle();
-    assert.equal(window.location.pathname, `/dashboard/models/effort/${ALIAS}`);
-    const { editor, editors } = guardEditor(router, [false, true]);
+      await press(page, "back", true);
+      assert.equal(editor.asked, 2);
+      assert.equal(window.location.pathname + window.location.search, "/dashboard/models?filter=effort");
+      assert.equal(router.route.value.effort, null, "the editor closes and its edits are discarded");
+      assert.deepEqual(entries(), stack);
+    });
 
-    history.forward();
-    await settle();
-    assert.equal(editor.asked, 1);
-    assert.equal(window.location.pathname, `/dashboard/models/effort/${ALIAS}`);
-    assert.deepEqual(editors, [ALIAS]);
+    it(`asks before Forward discards edits, answered ${timing}`, async () => {
+      const start = browser("/dashboard/models");
+      start.router.navigate(start.router.effortPath(ALIAS));
+      start.router.navigate("/dashboard/requests");
+      start.history.back();
+      await settle();
+      assert.equal(start.window.location.pathname, EDITOR);
+      const page = guardEditor(start);
+      const { router, window, editor, editors } = page;
 
-    history.forward();
-    await settle();
-    assert.equal(editor.asked, 2);
-    assert.equal(window.location.pathname, "/dashboard/requests");
-    assert.equal(router.route.value.page, "requests");
-  });
+      await press(page, "forward", false);
+      assert.equal(editor.asked, 1);
+      assert.equal(window.location.pathname, EDITOR);
+      assert.deepEqual(editors, [ALIAS]);
+
+      await press(page, "forward", true);
+      assert.equal(editor.asked, 2);
+      assert.equal(window.location.pathname, "/dashboard/requests");
+      assert.equal(router.route.value.page, "requests");
+    });
+  }
 
   it("asks before in-app navigation, such as the command palette, discards edits", async () => {
     const { router, window, editor, editors } = openDirtyEditor("/dashboard/models", [false, true]);
     router.navigate("/dashboard/usage");
     await settle();
     assert.equal(editor.asked, 1);
-    assert.equal(window.location.pathname, `/dashboard/models/effort/${ALIAS}`);
+    assert.equal(window.location.pathname, EDITOR);
     assert.deepEqual(editors, [ALIAS]);
 
     router.navigate("/dashboard/usage");
@@ -230,7 +257,7 @@ describe("Unsaved effort editor navigation", () => {
 
   it("names the editor by its ID, or by the suggested family while creating", () => {
     const { router } = browser("/dashboard/models");
-    assert.equal(router.effortEditorKey({ path: `/dashboard/models/effort/${ALIAS}`, search: "?q=x" }), ALIAS);
+    assert.equal(router.effortEditorKey({ path: EDITOR, search: "?q=x" }), ALIAS);
     assert.equal(router.effortEditorKey({ path: "/dashboard/models/effort", search: "?from=gemini-3.6-flash" }), "new:gemini-3.6-flash");
     assert.equal(router.effortEditorKey({ path: "/dashboard/models/effort", search: "" }), "new:");
     assert.equal(router.effortEditorKey({ path: "/dashboard/models", search: "" }), null);

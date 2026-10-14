@@ -74,25 +74,38 @@ function readPosition(): number {
 
 let position = readPosition();
 // Traversals the router makes itself: undoing a blocked one, then redoing it
-// once the user chooses to leave.
+// once the user chooses to leave. A redo chosen before the undo lands waits
+// for it, because browsers mishandle a traversal started while another is on
+// its way. Chromium drops it and Firefox runs it first, which leaves the
+// editor open, and WebKit counts it from the wrong entry.
 let undoing = false;
 let redoing = false;
+// A redo chosen before the undo landed, as a history.go() delta.
+let redoAfterUndo = 0;
+
+function redo(delta: number): void {
+  if (undoing) {
+    redoAfterUndo = delta;
+    return;
+  }
+  redoing = true;
+  window.history.go(delta);
+}
 
 window.addEventListener("popstate", () => {
   const from = position;
   position = readPosition();
   if (undoing) {
     undoing = false;
+    if (redoAfterUndo !== 0) redo(redoAfterUndo);
+    redoAfterUndo = 0;
     return;
   }
   const delta = from - position;
   if (!redoing && delta !== 0 && (asking || blocked(readLocation()))) {
     undoing = true;
     window.history.go(delta);
-    void askToLeave(() => {
-      redoing = true;
-      window.history.go(-delta);
-    });
+    void askToLeave(() => redo(-delta));
     return;
   }
   redoing = false;
