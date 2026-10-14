@@ -710,7 +710,8 @@ function LoginScreen(): JSX.Element {
     if (params.has("auth")) {
       params.delete("auth");
       const rest = params.toString();
-      window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : ""));
+      // Keep the router's state: it records the entry's position in history.
+      window.history.replaceState(window.history.state, "", window.location.pathname + (rest ? `?${rest}` : ""));
     }
   }, []);
 

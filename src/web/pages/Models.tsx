@@ -31,7 +31,7 @@ import { providerLabel, type Tone } from "../lib/status.js";
 import { run } from "../state/actions.js";
 import { api } from "../state/api.js";
 import { createModelCatalogState } from "../state/model-catalog.js";
-import { accountPath, BASE, navigate, providerPath, query, route, setQuery } from "../state/router.js";
+import { accountPath, BASE, effortPath, navigate, providerPath, query, route, setQuery } from "../state/router.js";
 import { masker, now, overview } from "../state/store.js";
 import { Icon } from "../components/icons.js";
 import { Drawer, Menu } from "../components/overlays.js";
@@ -50,6 +50,7 @@ import {
   StatusPill,
   Switch,
 } from "../components/ui.js";
+import { EffortRouteDrawer, EffortRoutingPanel } from "./EffortRouting.js";
 import { openAddAccount } from "./shared.js";
 
 const catalogState = createModelCatalogState(() => api.catalog());
@@ -142,7 +143,9 @@ export function ModelsPage(): JSX.Element {
   }
 
   const closeDrawer = () => {
-    const back = query.value.toString();
+    const params = new URLSearchParams(query.value);
+    params.delete("from");
+    const back = params.toString();
     navigate(`${BASE}/models${back ? `?${back}` : ""}`);
   };
   const drawerSummary = providers.find((summary) => summary.provider.id === drawerId) ?? null;
@@ -152,6 +155,7 @@ export function ModelsPage(): JSX.Element {
       {header}
       <ModelStats state={state} providers={providers} />
       <ProvidersPanel state={state} providers={providers} />
+      <EffortRoutingPanel state={state} change={change} />
       <ModelsPanel state={state} />
       <Drawer open={Boolean(drawerId)} onClose={closeDrawer} label="Provider details">
         {drawerId &&
@@ -169,6 +173,13 @@ export function ModelsPage(): JSX.Element {
             </div>
           ))}
       </Drawer>
+      <EffortRouteDrawer
+        state={state}
+        match={route.value.effort}
+        change={change}
+        commit={(fn) => catalogState.change(fn)}
+        onClose={closeDrawer}
+      />
     </>
   );
 }
@@ -505,7 +516,14 @@ function ModelsPanel({ state }: { state: ModelCatalogResponse }): JSX.Element {
             </thead>
             <tbody>
               {visible.map((row) => (
-                <ModelRows key={row.key} row={row} names={names} open={open.has(row.key)} onToggleOpen={() => toggleOpen(row.key)} />
+                <ModelRows
+                  key={row.key}
+                  row={row}
+                  names={names}
+                  open={open.has(row.key)}
+                  onToggleOpen={() => toggleOpen(row.key)}
+                  effortListed={row.effortRoute ? state.effortRoutes.some((entry) => entry.alias === row.effortRoute!.alias && entry.listed) : false}
+                />
               ))}
             </tbody>
           </table>
@@ -539,11 +557,14 @@ function ModelRows({
   names,
   open,
   onToggleOpen,
+  effortListed = false,
 }: {
   row: ModelRow;
   names: Record<string, string>;
   open: boolean;
   onToggleOpen: () => void;
+  /** The effort-routed ID that uses this model is listed, which hides the model from /v1/models. */
+  effortListed?: boolean;
 }): JSX.Element {
   // Offerings whose provider is on; the row switch acts on those.
   const switchable = row.offerings.filter((entry) => entry.offReason !== "provider");
@@ -571,8 +592,23 @@ function ModelRows({
             <span class="model-id">{row.id}</span>
             {row.shared && <span class="tag tag-accent">Shared</span>}
             {row.waiting && <span class="tag tag-info">Waiting for review</span>}
+            {row.effortRoute && <span class="tag tag-accent">Effort · {row.effortRoute.effort}</span>}
           </div>
           {sub && <div class="cell-sub">{sub}</div>}
+          {row.effortRoute && (
+            <div class="cell-sub">
+              Called as{" "}
+              <Link href={effortPath(row.effortRoute.alias)} class="effort-inline-link">
+                {row.effortRoute.alias}
+              </Link>
+              {effortListed && (
+                <>
+                  {" "}
+                  · hidden from <code>/v1/models</code>
+                </>
+              )}
+            </div>
+          )}
         </th>
         <td>
           <ServedBy row={row} names={names} />

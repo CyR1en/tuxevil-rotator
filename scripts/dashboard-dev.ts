@@ -28,6 +28,8 @@ else delete process.env.DATABASE_URL;
 const { setPersistedAdminToken } = await import("../src/admin-auth.js");
 const { startProxy } = await import("../src/proxy.js");
 const modelCatalog = await import("../src/model-catalog.js");
+const effortRouting = await import("../src/effort-routing.js");
+const { applyConfigOverrides } = await import("../src/config-overrides.js");
 const { getModelCatalogRevision } = await import("../src/model-catalog-revision.js");
 setPersistedAdminToken(TOKEN || null);
 
@@ -149,7 +151,15 @@ let config: Record<string, unknown> = {
   rotateOnQuotaDrop: 0,
   quotaPollIntervalMs: 300_000,
   maxConcurrentRequestsPerAccount: 5,
+  // One effort route; the Models page suggests the other effort families.
+  effortRouting: SCENARIO === "empty" ? undefined : {
+    "gemini-3.8-flash": {
+      defaultEffort: "medium",
+      targets: { low: "gemini-3.8-flash-low", medium: "gemini-3.8-flash-medium", high: "gemini-3.8-flash-high" },
+    },
+  },
 };
+applyConfigOverrides(config);
 
 const MODELS = ["claude-sonnet-4-6", "claude-opus-4-6-thinking", "gemini-3.1-pro-high", "gemini-3.6-flash-high", "gpt-oss-120b-medium", "glm-5.1", "gpt-5.6-terra", "big-pickle"];
 const WEIGHTS = [0.28, 0.08, 0.2, 0.18, 0.08, 0.08, 0.06, 0.04];
@@ -416,6 +426,22 @@ const rotator = {
   setAutoEnableNewModels: async (enabled: boolean) => {
     applyModelPatch(modelCatalog.setAutoEnableNewModels(rotator, enabled));
   },
+  saveEffortRoute: async (previousAlias: string | null, body: unknown) => {
+    const plan = effortRouting.planEffortRouteSave(rotator, previousAlias, body);
+    if (plan.ok) {
+      applyModelPatch(plan.patch);
+      applyConfigOverrides(modelConfig());
+    }
+    return plan;
+  },
+  deleteEffortRoute: async (alias: string) => {
+    const plan = effortRouting.planEffortRouteDelete(modelConfig(), alias);
+    if (plan.ok) {
+      applyModelPatch(plan.patch);
+      applyConfigOverrides(modelConfig());
+    }
+    return plan;
+  },
   setAccountProviderEnabled: async (email: string, providerId: string, enabled: boolean) => {
     const a = byEmail(email);
     if (!a || !a.provider.split("+").includes(providerId)) return false;
@@ -430,6 +456,7 @@ const rotator = {
   getPublicConfig: () => structuredClone(config),
   replaceConfig: async (next: Record<string, unknown>) => {
     config = next;
+    applyConfigOverrides(config);
     touch();
   },
   enableAccount: async (email: string) => {

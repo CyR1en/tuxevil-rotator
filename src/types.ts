@@ -502,6 +502,10 @@ export function resolveDisplayModelKey(
   ) {
     return "gemini-3.7-flash-tiered";
   }
+  // Gemini 3.5 Flash Lite is its own model, not a Gemini 3 Flash variant.
+  if (lower.includes("gemini") && lower.includes("3.5") && lower.includes("flash-lite")) {
+    return "gemini-3.5-flash-lite";
+  }
   // Flash
   if (lower.includes("gemini") && lower.includes("flash"))
     return "gemini-3-flash";

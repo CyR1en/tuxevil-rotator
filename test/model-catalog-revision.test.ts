@@ -58,6 +58,14 @@ describe("live Models catalog revision", () => {
     assert.notEqual(getModelCatalogRevision(source), waiting, "reviewed state changes even while a provider is off");
   });
 
+  it("changes when the switch of an effort-routed id flips, though no provider lists it", () => {
+    const { source, setConfig } = fixture();
+    setConfig({ effortRouting: { "fixture-effort": { defaultEffort: "medium", targets: { medium: "gemini-3.8-flash-medium" } } } });
+    const before = getModelCatalogRevision(source);
+    setConfig({ disabledModels: ["google-antigravity/fixture-effort"] });
+    assert.notEqual(getModelCatalogRevision(source), before);
+  });
+
   it("changes when an account removes a provider from route selection", () => {
     const { source, active } = fixture();
     const before = getModelCatalogRevision(source);

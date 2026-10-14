@@ -531,6 +531,8 @@ describe("models page", () => {
     })),
     models,
     autoEnableNewModels: true,
+    effortRoutes: [],
+    effortSuggestions: [],
   });
 
   it("builds one row per id across providers", () => {

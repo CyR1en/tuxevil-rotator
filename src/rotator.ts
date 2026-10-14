@@ -78,6 +78,8 @@ import {
   type CatalogModel,
 } from "./model-catalog.js";
 import { getModelCatalogRevision } from "./model-catalog-revision.js";
+import { applyConfigOverrides } from "./config-overrides.js";
+import { planEffortRouteDelete, planEffortRouteSave, type EffortRoutePlan } from "./effort-routing.js";
 import { logger } from "./logger.js";
 import { getAccountProxyDispatcher } from "./providers/proxy-dispatcher.js";
 import {
@@ -3580,6 +3582,33 @@ export class AccountRotator {
     return true;
   }
 
+  /**
+   * Create (`previousAlias` null), replace or rename an effort route from a
+   * dashboard request body. Saved routes apply to new requests right away.
+   */
+  async saveEffortRoute(previousAlias: string | null, body: unknown): Promise<EffortRoutePlan> {
+    const plan = planEffortRouteSave(this, previousAlias, body);
+    if (plan.ok && (await this.updateModelSettings(plan.patch))) {
+      applyConfigOverrides(this.config);
+      this.log(
+        previousAlias === null
+          ? `Operator created effort model ${plan.alias}`
+          : `Operator updated effort model ${previousAlias}${previousAlias === plan.alias ? "" : ` as ${plan.alias}`}`,
+        "warn",
+      );
+    }
+    return plan;
+  }
+
+  async deleteEffortRoute(alias: string): Promise<EffortRoutePlan> {
+    const plan = planEffortRouteDelete(this.config, alias);
+    if (plan.ok && (await this.updateModelSettings(plan.patch))) {
+      applyConfigOverrides(this.config);
+      this.log(`Operator deleted effort model ${plan.alias}`, "warn");
+    }
+    return plan;
+  }
+
   /** Re-read the Ollama and Codex model lists now instead of on the next poll. */
   async refreshModelCatalogs(): Promise<void> {
     this.lastOllamaCatalogFetch = 0;
@@ -4458,6 +4487,7 @@ export class AccountRotator {
     const mergedAccounts = normalized.accounts.map(matchAndReuseAccount);
     this.config = { ...normalized, accounts: mergedAccounts.map((account) => account.config) };
     this.accounts = mergedAccounts;
+    applyConfigOverrides(this.config);
     this.reconcileDynamicCatalog();
     this.requestWaiterDrain();
     await saveAccountsConfig(this.config);

@@ -836,6 +836,71 @@ describe("effort-based routing endpoint e2e", () => {
 		}
 	});
 
+	it("/v1/messages picks the level from output_config.effort or the thinking budget", async () => {
+		setEffortRoutingOverride({
+			"gemini-3.8-flash": {
+				defaultEffort: "medium",
+				targets: {
+					low: "gemini-3.8-flash-low",
+					medium: "gemini-3.8-flash-medium",
+					high: "gemini-3.8-flash-high",
+				},
+			},
+		});
+
+		const upstreamCaptures: Capture[] = [];
+		const upstream = await listenServer((req, res) => {
+			let body = "";
+			req.on("data", (chunk) => { body += chunk.toString(); });
+			req.on("end", () => {
+				upstreamCaptures.push({ url: req.url || "", headers: req.headers, body });
+				res.writeHead(200, { "Content-Type": "text/event-stream" });
+				res.end([
+					'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"pong"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3}}}',
+					"",
+				].join("\n"));
+			});
+		});
+
+		endpointOverrides.splice(0, endpointOverrides.length, upstream.url);
+
+		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
+		const rotator = createE2eRotator(createAccount(), tracking);
+		const proxy = startProxy(rotator, 0, "127.0.0.1");
+		await once(proxy, "listening");
+		const port = (proxy.address() as AddressInfo).port;
+
+		try {
+			const cases: Array<[Record<string, unknown>, string]> = [
+				[{ output_config: { effort: "high" } }, "gemini-3.8-flash-high"],
+				[{ thinking: { type: "enabled", budget_tokens: 2_000 } }, "gemini-3.8-flash-low"],
+				[{ thinking: { type: "enabled", budget_tokens: 20_000 } }, "gemini-3.8-flash-high"],
+				[{ thinking: { type: "disabled" } }, "gemini-3.8-flash-low"],
+				[{ thinking: { type: "enabled", budget_tokens: 20_000 }, output_config: { effort: "low" } }, "gemini-3.8-flash-low"],
+			];
+			for (const [extra, expected] of cases) {
+				const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						model: "gemini-3.8-flash",
+						max_tokens: 100,
+						messages: [{ role: "user", content: "ping" }],
+						...extra,
+					}),
+				});
+				assert.equal(res.status, 200, JSON.stringify(extra));
+				assert.equal(((await res.json()) as { model: string }).model, "gemini-3.8-flash");
+				assert.equal(JSON.parse(upstreamCaptures.at(-1)!.body).model, expected, JSON.stringify(extra));
+			}
+			assert.equal(upstreamCaptures.length, cases.length);
+		} finally {
+			proxy.closeAllConnections?.();
+			await closeServer(proxy);
+			await closeServer(upstream.server);
+		}
+	});
+
 	it("streaming echo preserves the alias across Chat, Responses, and Anthropic events", async () => {
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {
@@ -1094,6 +1159,54 @@ describe("effort-based routing endpoint e2e", () => {
 			// whisper-1 is sent upstream as gemini-3.8-flash-low.
 			response = await chat({ model: "whisper-1" });
 			assert.equal(response.status, 404);
+			// Claude-style requests resolve their level the same way before the switch check.
+			const messages = (body: Record<string, unknown>) =>
+				fetch(`http://127.0.0.1:${port}/v1/messages`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ max_tokens: 16, messages: [{ role: "user", content: "hi" }], ...body }),
+				});
+			response = await messages({ model: "fast-pro", output_config: { effort: "high" } });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { type: string } }).error.type, "not_found_error");
+			response = await messages({ model: "fast-pro", thinking: { type: "enabled", budget_tokens: 20_000 } });
+			assert.equal(response.status, 404);
+			assert.equal(tracking.requestLogs.length, 0);
+		} finally {
+			proxy.closeAllConnections?.();
+			await closeServer(proxy);
+		}
+	});
+
+	it("rejects a switched-off effort alias with any name as model not found", async () => {
+		// "my-model" matches no provider's naming pattern; it is still an Antigravity id.
+		setEffortRoutingOverride({
+			"my-model": { defaultEffort: "low", targets: { low: "gemini-3.8-flash-low" } },
+		});
+		const tracking: Tracking = { requestLogs: [], latencies: [], tokenUsage: [] };
+		const rotator = {
+			...createE2eRotator(createAccount(), tracking),
+			getConfig: () => ({ accounts: [], disabledModels: ["google-antigravity/my-model"] }),
+		} as unknown as AccountRotator;
+		const proxy = startProxy(rotator, 0, "127.0.0.1");
+		await once(proxy, "listening");
+		const port = (proxy.address() as AddressInfo).port;
+		const post = (path: string, body: Record<string, unknown>) =>
+			fetch(`http://127.0.0.1:${port}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		try {
+			let response = await post("/v1/chat/completions", { model: "my-model", messages: [{ role: "user", content: "hi" }] });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { code: string } }).error.code, "model_not_found");
+			response = await post("/v1/responses", { model: "my-model", input: "hi" });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { code: string } }).error.code, "model_not_found");
+			response = await post("/v1/messages", { model: "my-model", max_tokens: 16, messages: [{ role: "user", content: "hi" }] });
+			assert.equal(response.status, 404);
+			assert.equal(((await response.json()) as { error: { type: string } }).error.type, "not_found_error");
 			assert.equal(tracking.requestLogs.length, 0);
 		} finally {
 			proxy.closeAllConnections?.();

@@ -1,5 +1,9 @@
 import { logger, redactSensitive } from "../../logger.js";
 import { applyModelAlias, getEffortRoutingRule } from "../../types.js";
+import {
+  CLAUDE_THINKING_BUDGET_EFFORTS,
+  CLAUDE_THINKING_DISABLED_EFFORT,
+} from "../../effort-levels.js";
 import type { RequestBody } from "../../proxy.js";
 import {
   isRecord,
@@ -945,13 +949,55 @@ export function resolveEffortAliasModel(
     : null;
 }
 
+function outputConfigEffort(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const effort = value.effort;
+  return typeof effort === "string" && effort.trim() ? effort : undefined;
+}
+
+/**
+ * Effort level an Anthropic Messages request asks for, used to pick an effort
+ * alias's target. The latest per-message `output_config.effort` wins, then the
+ * top-level one. Without either, `thinking` decides: a `budget_tokens` maps to
+ * a level through CLAUDE_THINKING_BUDGET_EFFORTS, and thinking turned off asks
+ * for the lowest level. Adaptive or absent thinking asks for none, so the
+ * alias uses its default.
+ */
+export function claudeRoutingEffort(
+  input: AnthropicMessagesRequest,
+): string | undefined {
+  const messages = Array.isArray(input.messages) ? input.messages : [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message: unknown = messages[i];
+    if (!isRecord(message) || message.role !== "system") continue;
+    const effort = outputConfigEffort(message.output_config);
+    if (effort) return effort;
+  }
+  const effort = outputConfigEffort(input.output_config);
+  if (effort) return effort;
+  const thinking = input.thinking;
+  if (!isRecord(thinking)) return undefined;
+  if (thinking.type === "disabled") return CLAUDE_THINKING_DISABLED_EFFORT;
+  const budget = thinking.budget_tokens;
+  if (thinking.type === "enabled" && typeof budget === "number" && Number.isFinite(budget)) {
+    return CLAUDE_THINKING_BUDGET_EFFORTS.find((bucket) => budget < bucket.below)?.effort;
+  }
+  return undefined;
+}
+
 export function openAIToAntigravityBody(
   input: OpenAIChatCompletionRequest,
+  options: {
+    /** Picks an effort alias's target when the request has no reasoning_effort. */
+    routingEffort?: string;
+  } = {},
 ): RequestBody {
   const requestedModel = input.model;
   const effortTarget =
-    resolveEffortAliasModel(requestedModel, input.reasoning_effort) ??
-    requestedModel;
+    resolveEffortAliasModel(
+      requestedModel,
+      input.reasoning_effort ?? options.routingEffort,
+    ) ?? requestedModel;
 
   const systemParts: string[] = [];
   const conversationMessages = input.messages.filter((msg) => {
@@ -1501,18 +1547,21 @@ export function anthropicToAntigravityBody(
   const tools = convertAnthropicToolsToOpenAI(input.tools);
   const toolChoice = convertAnthropicToolChoice(input.tool_choice);
   const convertedMessages = convertAnthropicMessagesToOpenAI(input.messages);
-  return openAIToAntigravityBody({
-    model: input.model,
-    stream: input.stream,
-    temperature: input.temperature,
-    max_tokens: input.max_tokens,
-    tools,
-    tool_choice: toolChoice,
-    messages: [
-      ...(systemText ? [{ role: "system" as const, content: systemText }] : []),
-      ...convertedMessages,
-    ],
-  });
+  return openAIToAntigravityBody(
+    {
+      model: input.model,
+      stream: input.stream,
+      temperature: input.temperature,
+      max_tokens: input.max_tokens,
+      tools,
+      tool_choice: toolChoice,
+      messages: [
+        ...(systemText ? [{ role: "system" as const, content: systemText }] : []),
+        ...convertedMessages,
+      ],
+    },
+    { routingEffort: claudeRoutingEffort(input) },
+  );
 }
 
 export function mapReasoningEffortToThinkingLevel(

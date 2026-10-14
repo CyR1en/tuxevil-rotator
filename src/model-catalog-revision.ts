@@ -12,6 +12,9 @@ export function getModelCatalogRevision(source: ModelCatalogSource): string {
     })),
     models: listCatalogModels(source),
     autoEnableNewModels: config?.autoEnableNewModels ?? true,
+    effortRouting: config?.effortRouting ?? null,
+    // The switch of an id no provider lists, such as an effort-routed id, is not in `models`.
+    disabledModels: (config?.disabledModels ?? []).map((key) => key.trim().toLowerCase()).sort(),
   };
   return createHash("sha256").update(JSON.stringify(state)).digest("hex").slice(0, 32);
 }

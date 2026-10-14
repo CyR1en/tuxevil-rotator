@@ -8,7 +8,7 @@
 // providers/registry.ts, so routing for them is unchanged.
 
 import type { Config } from "./types.js";
-import { applyModelAlias } from "./types.js";
+import { applyModelAlias, getEffortRoutingRule } from "./types.js";
 import type { ProviderModel } from "./providers/adapter.js";
 import {
   findProviderForModel,
@@ -175,12 +175,14 @@ export function resolveModelRoute(source: ModelCatalogSource, model: string): Mo
   }
 
   if (listed.length === 0) {
-    const owner = findProviderForModel(model, {
-      ollamaModels: new Set(source.getOllamaModels?.() ?? []),
-      codexModels: new Set(source.getCodexModels?.() ?? []),
-    });
-    if (owner && isTurnedOff(settings, catalog, owner.id, model)) {
-      return { kind: "off", providerIds: [owner.id] };
+    // Effort aliases always dispatch to Antigravity, whatever their name looks like.
+    const ownerId =
+      findProviderForModel(model, {
+        ollamaModels: new Set(source.getOllamaModels?.() ?? []),
+        codexModels: new Set(source.getCodexModels?.() ?? []),
+      })?.id ?? (getEffortRoutingRule(model) ? "google-antigravity" : null);
+    if (ownerId && isTurnedOff(settings, catalog, ownerId, model)) {
+      return { kind: "off", providerIds: [ownerId] };
     }
     return { kind: "unlisted" };
   }

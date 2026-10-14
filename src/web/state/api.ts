@@ -11,6 +11,12 @@ import type {
   UsageResponse,
 } from "../../dashboard-types.js";
 
+export interface EffortRouteBody {
+  alias: string;
+  defaultEffort: string;
+  targets: Record<string, string>;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -196,6 +202,13 @@ export const api = {
       "POST",
       `/api/catalog/accounts/${enc(accountId)}/${enc(providerId)}/${on ? "on" : "off"}`,
     ),
+  /** A refused change throws ApiError whose body is an EffortRouteErrorResponse. */
+  createEffortRoute: (route: EffortRouteBody) =>
+    request<ModelCatalogResponse>("POST", "/api/catalog/effort-routes", route),
+  updateEffortRoute: (alias: string, route: EffortRouteBody) =>
+    request<ModelCatalogResponse>("PUT", `/api/catalog/effort-routes/${enc(alias)}`, route),
+  deleteEffortRoute: (alias: string) =>
+    request<ModelCatalogResponse>("DELETE", `/api/catalog/effort-routes/${enc(alias)}`),
 
   spendLogs: (q: SpendQuery) =>
     request<{ ok: true; logs: SpendLog[]; total: number; summary: SpendSummary }>(

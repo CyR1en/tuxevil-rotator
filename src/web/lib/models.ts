@@ -47,6 +47,8 @@ export interface ModelRow {
   waiting: boolean;
   /** Requests in the last hour. */
   requests: number;
+  /** The effort-routed model ID that sends one of its levels to this model. */
+  effortRoute: { alias: string; effort: string } | null;
 }
 
 export function buildModelRows(
@@ -69,8 +71,10 @@ export function buildModelRows(
       shared: false,
       waiting: false,
       requests: requests.get(key) ?? 0,
+      effortRoute: null,
     };
     row.offerings.push(entry);
+    row.effortRoute ??= entry.effortRoute ?? null;
     row.on ||= isServed(entry);
     row.waiting ||= entry.modelSwitch === "review";
     row.shared = row.offerings.length > 1;
@@ -79,7 +83,7 @@ export function buildModelRows(
   return [...rows.values()];
 }
 
-export type ModelFilter = "all" | "on" | "off" | "shared" | "waiting";
+export type ModelFilter = "all" | "on" | "off" | "shared" | "waiting" | "effort";
 
 export const MODEL_FILTERS: Array<{ id: ModelFilter; label: string; match: (row: ModelRow) => boolean }> = [
   { id: "all", label: "All", match: () => true },
@@ -87,6 +91,7 @@ export const MODEL_FILTERS: Array<{ id: ModelFilter; label: string; match: (row:
   { id: "off", label: "Off", match: (row) => !row.on },
   { id: "shared", label: "Shared", match: (row) => row.shared },
   { id: "waiting", label: "Waiting for review", match: (row) => row.waiting },
+  { id: "effort", label: "Effort routing", match: (row) => row.effortRoute !== null },
 ];
 
 export function isModelFilter(value: unknown): value is ModelFilter {
