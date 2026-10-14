@@ -2,9 +2,11 @@
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-14
+
 ### Added
 
-- **Effort routing editor**: the Models page gains an **Effort routing** panel and editor, so effort aliases no longer need hand-edited JSON.
+- **Effort routing editor**: the Models page gains an **Effort routing** panel and editor, so effort aliases no longer need hand-edited JSON. ([PR #40](https://github.com/tuxevil/tuxevil-rotator/pull/40) by [@CyR1en](https://github.com/CyR1en))
   - It suggests model families with effort variants, such as `gemini-3.6-flash-low`, `-medium` and `-high`, and sets them up in one step.
   - Pick a model for each effort level and choose the default. The editor previews where every kind of request goes and what changes in `/v1/models`.
   - An alias can be turned off, renamed or deleted, and the Models table tags the variants each alias uses. Leaving the editor with unsaved changes, including with Back or Forward, asks first.
@@ -18,6 +20,12 @@
 - **Gemini 3.5 Flash Lite usage**: requests are now recorded under `gemini-3.5-flash-lite` instead of `gemini-3-flash`, so the Models page and effort routes show its traffic. Pricing is unchanged.
 - **Automatic Codex model discovery**: send the required `client_version` query parameter, accept future numbered GPT versions including `gpt-6.1-sol`, and parse Codex catalog `slug` entries. Refresh discovery during quota polling with a five-minute cache and shared concurrent requests, retaining the last catalog when discovery fails.
 - **Codex account catalogs**: merge model discoveries from all eligible accounts, with at most four concurrent queries, so a restricted first account does not hide models available through other plans.
+- **Effort alias validation**: reject the reserved ID `auto` and URL dot segments `.` and `..`, with errors beside the model ID field.
+- **Unsaved effort edits**: guard Back, Forward, in-app navigation and page unload; confirmed history navigation waits for restoration before proceeding, including immediate confirmations.
+
+### Contributors
+
+- Thanks to [@CyR1en](https://github.com/CyR1en) for the effort routing editor, Claude-style effort selection, live configuration updates, API and documentation, and regression coverage in [PR #40](https://github.com/tuxevil/tuxevil-rotator/pull/40), including the fixes and browser validation throughout review.
 
 ## [4.1.0] - 2026-10-13
 
