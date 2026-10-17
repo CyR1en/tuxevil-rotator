@@ -649,9 +649,12 @@ async function handleUpstreamAccountAction(
       uptimeSeconds: ctx401.uptimeSeconds,
       timeSinceLastFlagSeconds: -1,
     });
-    rotator.markFlagged(
+    // Provider-scoped invalidation: only the failing provider is taken
+    // out of rotation; sibling providers on the same account remain active.
+    rotator.markProviderInvalid(
       account,
-      `Account blocked (401): ${action.errorText.slice(0, 300)}`,
+      provider.id,
+      `Provider credential rejected (401): ${action.errorText.slice(0, 300)}`,
     );
     logRequestEnd(401, `endpoint=${action.endpoint}`);
     if (!options.canRetry) {
@@ -661,7 +664,7 @@ async function handleUpstreamAccountAction(
     if (!nextAccount) {
       return buildNoReplacementDecision(
         options,
-        `no replacement account remained after ${label} was flagged with 401`,
+        `no replacement account remained after ${label} provider was invalidated with 401`,
       );
     }
     return { kind: "retry" };
@@ -691,7 +694,14 @@ async function handleUpstreamAccountAction(
       uptimeSeconds: ctx403.uptimeSeconds,
       timeSinceLastFlagSeconds: -1,
     });
-    rotator.markFlagged(account, action.errorText.slice(0, 300));
+    // Provider-scoped invalidation: a 403 with flag patterns (suspended,
+    // banned, etc.) indicates the upstream provider rejected this credential.
+    // Only the failing provider is taken out; sibling providers remain active.
+    rotator.markProviderInvalid(
+      account,
+      provider.id,
+      `Provider flagged (403): ${action.errorText.slice(0, 300)}`,
+    );
     if (!options.canRetry) {
       return buildFailureDecision(options, 403, action.errorText);
     }
@@ -699,7 +709,7 @@ async function handleUpstreamAccountAction(
     if (!nextAccount) {
       return buildNoReplacementDecision(
         options,
-        `no replacement account remained after ${label} was flagged with 403`,
+        `no replacement account remained after ${label} provider was invalidated with 403`,
       );
     }
     return { kind: "retry" };
