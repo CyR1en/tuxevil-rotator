@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { buildCompositeInstallerScript } from "../src/install-agent.js";
 
 describe("Agent Installer", () => {
-  const mockPluginContent = "console.log('mock-plugin');";
+  const mockPluginFiles = {
+    "index.mjs": "console.log('mock-plugin');",
+    "package.json": JSON.stringify({ name: "tuxevil-opencode-discovery", type: "module" }),
+  };
 
   it("builds composite script covering auto-detection by default", () => {
-    const script = buildCompositeInstallerScript(mockPluginContent, {
+    const script = buildCompositeInstallerScript(mockPluginFiles, {
       targets: ["auto"],
       rotatorUrl: "http://10.128.128.164:51200/v1",
       providerId: "tuxevil-rotator",
@@ -28,11 +31,13 @@ describe("Agent Installer", () => {
     assert.ok(script.includes("discover_models"));
     assert.ok(script.includes("models.json"));
     assert.ok(script.includes("config.toml"));
-    assert.ok(script.includes("opencode-discovery.js"));
+    assert.ok(script.includes("opencode-discovery/index.mjs"));
+    assert.ok(script.includes("config.plugins.push"));
+    assert.ok(!script.includes("opencode-discovery.js"));
   });
 
   it("respects targeted agent selections", () => {
-    const script = buildCompositeInstallerScript(mockPluginContent, {
+    const script = buildCompositeInstallerScript(mockPluginFiles, {
       targets: ["hermes", "pi"],
       rotatorUrl: "http://localhost:51200/v1",
       providerId: "antigravity",
@@ -45,7 +50,7 @@ describe("Agent Installer", () => {
   });
 
   it("handles fallback defaults when apiKey is not provided", () => {
-    const script = buildCompositeInstallerScript(mockPluginContent, {
+    const script = buildCompositeInstallerScript(mockPluginFiles, {
       targets: ["all"],
       rotatorUrl: "http://localhost:51200/v1",
       providerId: "tuxevil-rotator",

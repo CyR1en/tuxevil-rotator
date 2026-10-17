@@ -4,7 +4,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OPENCODE_PLUGIN_SOURCE_PATH = resolve(__dirname, "../plugins/opencode-discovery.js");
+const OPENCODE_PLUGIN_SOURCE_DIR = resolve(__dirname, "../plugins/opencode-discovery");
+const OPENCODE_PLUGIN_RUNTIME_FILES = ["index.mjs", "package.json"];
 
 export type SupportedAgent = "opencode" | "hermes" | "pi" | "codex";
 
@@ -25,7 +26,7 @@ export interface AgentInstallOptions {
  * Builds the composite shell script that detects and configures all requested agents.
  */
 export function buildCompositeInstallerScript(
-  opencodePluginContent: string,
+  opencodePluginFiles: Record<string, string>,
   options: {
     targets: Array<SupportedAgent | "auto" | "all">;
     rotatorUrl: string;
@@ -34,7 +35,14 @@ export function buildCompositeInstallerScript(
     apiKey?: string;
   }
 ): string {
-  const pluginBase64 = Buffer.from(opencodePluginContent, "utf8").toString("base64");
+  if (!OPENCODE_PLUGIN_RUNTIME_FILES.every((name) => name in opencodePluginFiles)) {
+    throw new Error(`opencodePluginFiles must include all of: ${OPENCODE_PLUGIN_RUNTIME_FILES.join(", ")}`);
+  }
+
+  const pluginFileWriteLines = OPENCODE_PLUGIN_RUNTIME_FILES.map((name) => {
+    const base64 = Buffer.from(opencodePluginFiles[name], "utf8").toString("base64");
+    return `echo "${base64}" | base64 -d > "$OPENCODE_DIR/plugins/opencode-discovery/${name}"`;
+  }).join("\n");
   const rotatorUrl = options.rotatorUrl.replace(/\/+$/, "");
   const providerId = options.providerId || "tuxevil-rotator";
   const providerName = options.providerName || "Tuxevil Rotator";
@@ -83,15 +91,15 @@ OPENCODE_DIR="$HOME/.config/opencode"
 if should_install "opencode" "$OPENCODE_DIR"; then
   echo ""
   echo "==> [OpenCode] Configuring in $OPENCODE_DIR..."
-  mkdir -p "$OPENCODE_DIR/plugins"
-  echo "${pluginBase64}" | base64 -d > "$OPENCODE_DIR/plugins/opencode-discovery.js"
+  mkdir -p "$OPENCODE_DIR/plugins/opencode-discovery"
+${pluginFileWriteLines}
 
   node -e '
   const fs = require("fs");
   const path = require("path");
 
   const configFile = path.join(process.env.HOME, ".config/opencode/opencode.json");
-  const pluginPath = path.join(process.env.HOME, ".config/opencode/plugins/opencode-discovery.js");
+  const pluginDir = path.join(process.env.HOME, ".config/opencode/plugins/opencode-discovery");
   const providerID = process.argv[1];
   const providerName = process.argv[2];
   const baseURL = process.argv[3];
@@ -109,19 +117,34 @@ if should_install "opencode" "$OPENCODE_DIR"; then
   }
 
   config.$schema = config.$schema || "https://opencode.ai/config.json";
-  config.plugin = Array.isArray(config.plugin) ? config.plugin : [];
 
-  // Remove existing discovery plugin
-  config.plugin = config.plugin.filter(p => {
-    if (typeof p === "string") return !p.includes("opencode-discovery.js");
-    if (Array.isArray(p)) return !p[0].includes("opencode-discovery.js");
-    return true;
+  const isDiscoveryEntry = (entry) => {
+    if (typeof entry === "string") return entry.includes("opencode-discovery");
+    if (Array.isArray(entry)) {
+      return typeof entry[0] === "string" && entry[0].includes("opencode-discovery");
+    }
+    if (entry && typeof entry === "object") {
+      return typeof entry.package === "string" && entry.package.includes("opencode-discovery");
+    }
+    return false;
+  };
+
+  // V2 plugin list: scrub prior discovery entries, then register the directory
+  config.plugins = Array.isArray(config.plugins) ? config.plugins.filter(p => !isDiscoveryEntry(p)) : [];
+  config.plugins.push({
+    package: pluginDir,
+    options: { baseURL, providerID, providerName }
   });
 
-  config.plugin.push([
-    pluginPath,
-    { baseURL, providerID, providerName }
-  ]);
+  // Legacy V1 key: scrub discovery entries, keep everything else untouched
+  if (Array.isArray(config.plugin)) {
+    const kept = config.plugin.filter(p => !isDiscoveryEntry(p));
+    if (kept.length > 0) {
+      config.plugin = kept;
+    } else {
+      delete config.plugin;
+    }
+  }
 
   config.provider = config.provider || {};
   config.provider[providerID] = config.provider[providerID] || {
@@ -383,11 +406,15 @@ echo "==> All target agents processed successfully!"
  * Installs configuration for one or more agents locally or over SSH.
  */
 export async function installAgents(options: AgentInstallOptions): Promise<void> {
-  if (!existsSync(OPENCODE_PLUGIN_SOURCE_PATH)) {
-    throw new Error(`OpenCode plugin file not found at ${OPENCODE_PLUGIN_SOURCE_PATH}`);
+  if (!existsSync(resolve(OPENCODE_PLUGIN_SOURCE_DIR, "index.mjs"))) {
+    throw new Error(`OpenCode plugin directory missing index.mjs at ${OPENCODE_PLUGIN_SOURCE_DIR}`);
   }
 
-  const opencodePluginContent = readFileSync(OPENCODE_PLUGIN_SOURCE_PATH, "utf8");
+  const opencodePluginFiles: Record<string, string> = {};
+  for (const name of OPENCODE_PLUGIN_RUNTIME_FILES) {
+    const filePath = resolve(OPENCODE_PLUGIN_SOURCE_DIR, name);
+    opencodePluginFiles[name] = readFileSync(filePath, "utf8");
+  }
   const rotatorUrl = (
     options.rotatorUrl ||
     process.env.TUXEVIL_ROTATOR_BASE_URL ||
@@ -399,7 +426,7 @@ export async function installAgents(options: AgentInstallOptions): Promise<void>
   const providerName = options.providerName || "Tuxevil Rotator";
   const targets: Array<SupportedAgent | "auto" | "all"> = options.targets && options.targets.length > 0 ? options.targets : ["auto"];
 
-  const script = buildCompositeInstallerScript(opencodePluginContent, {
+  const script = buildCompositeInstallerScript(opencodePluginFiles, {
     targets,
     rotatorUrl,
     providerId,

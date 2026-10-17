@@ -45,32 +45,38 @@ tuxevil-rotator install-opencode --rotator-url http://10.128.128.164:51200/v1
 
 ## Manual Installation and Plugin Details
 
-Instead of manually maintaining the `models` dictionary in `opencode.json`, you can enable the bundled **OpenCode Discovery Plugin**. It dynamically queries the rotator's `/v1/models` endpoint at startup and automatically populates all available models with their real context limits and tool-calling capabilities.
+Instead of manually maintaining the `models` dictionary in `opencode.json`, you can enable the bundled **OpenCode Discovery Plugin**. It queries the rotator's `/v1/models` endpoint when OpenCode loads and registers the provider with all available models, their real context limits and tool-calling capabilities — and it keeps refreshing that inventory in the background (every 10 minutes by default).
 
-Add the plugin to your `opencode.json`:
+> The plugin uses the **OpenCode 2.x plugin API** (`{ id, setup }` with `ctx.provider.transform`). OpenCode 1.x does not load it; targets must run OpenCode 2 or newer.
+
+Register the plugin directory in your `opencode.json`:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    [
-      "/path/to/pi-antigravity-rotator/plugins/opencode-discovery.js",
-      {
+  "plugins": [
+    {
+      "package": "/path/to/pi-antigravity-rotator/plugins/opencode-discovery",
+      "options": {
         // Optional: specify the rotator URL (defaults to TUXEVIL_ROTATOR_BASE_URL or http://127.0.0.1:51200/v1)
         "baseURL": "http://10.128.128.164:51200/v1",
-        "providerID": "antigravity"
+        "providerID": "antigravity",
+        // Optional: background re-discovery interval in ms. Default 600000, 0 disables.
+        "refreshMs": 600000
       }
-    ]
+    }
   ],
   "model": "antigravity/gemini-3.8-flash-high"
 }
 ```
 
 The plugin automatically detects the URL in this order:
-1. `baseURL` option passed directly in the plugin tuple in `opencode.json`.
+1. `baseURL` option passed directly in the plugin entry of `opencode.json`.
 2. `TUXEVIL_ROTATOR_BASE_URL` or `ROTATOR_URL` environment variables.
-3. Existing `provider.*.options.baseURL` in `opencode.json` pointing to a rotator port.
+3. Provider entries with a rotator-compatible `baseURL` (via `provider.*.options.baseURL` or the V2 provider registry).
 4. Fallback to `http://127.0.0.1:51200/v1`.
+
+If the rotator is unreachable at load time, the plugin degrades safely: it logs a warning and leaves the statically configured `provider.models` intact.
 
 ---
 

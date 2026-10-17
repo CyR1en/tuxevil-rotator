@@ -227,4 +227,29 @@ describe("OpenCode V2 rotator discovery plugin", () => {
     assert.equal(result, undefined);
     assert.equal(added.length, 0);
   });
+
+  it("setup degrades safely when the endpoint is unreachable (dead port)", async () => {
+    // Bind a port, close it, and use it as a guaranteed-dead endpoint
+    const deadServer = http.createServer(() => {});
+    await new Promise<void>((resolve) => deadServer.listen(0, "127.0.0.1", resolve));
+    const { port } = deadServer.address() as { port: number };
+    deadServer.close();
+    await new Promise((resolve) => deadServer.close(resolve));
+
+    const added: unknown[] = [];
+    const ctx: FakeCtx = {
+      options: { baseURL: `http://127.0.0.1:${port}/v1`, providerID: "rot-test", timeoutMs: 300, refreshMs: 0 },
+      provider: {
+        list: async () => [],
+        transform: async (callback) => {
+          callback({ get: () => undefined, add: (record) => added.push(record) });
+          return { dispose: async () => {} };
+        },
+      },
+    };
+
+    const result = await discoveryPlugin.setup(ctx);
+    assert.equal(result, undefined);
+    assert.equal(added.length, 0);
+  });
 });
