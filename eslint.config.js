@@ -31,6 +31,25 @@ export default [
     },
   },
   {
+    // Plugins are plain ESM run by the OpenCode host; declare Node globals for them
+    files: ["plugins/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        URL: "readonly",
+        fetch: "readonly",
+        AbortController: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+      },
+    },
+  },
+  {
     // Tests can be more permissive
     files: ["test/**/*.ts"],
     rules: {

@@ -1,0 +1,22 @@
+{
+  "name": "tuxevil-opencode-discovery",
+  "version": "1.0.0",
+  "description": "OpenCode V2 plugin that discovers tuxevil-rotator models and registers the provider",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "index.d.mts"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "openviking",
+    "rotator",
+    "model-discovery"
+  ],
+  "license": "Apache-2.0"
+}
