@@ -104,16 +104,14 @@ export function extractQuotas(
 
   for (const [, config] of Object.entries(QUOTA_MODEL_KEYS)) {
     const candidates: GoogleModelInfoWithQuota[] = [];
-    for (const candidate of [config.key, ...config.altKeys]) {
-      const info = data.models[candidate];
-      if (hasUsableQuotaInfo(info)) {
-        candidates.push(info);
-      }
+    const sharedPoolInfo = data.models[config.key];
+    if (hasUsableQuotaInfo(sharedPoolInfo)) {
+      candidates.push(sharedPoolInfo);
     }
 
     for (const [modelKey, info] of Object.entries(data.models)) {
       if (
-        ![config.key, ...config.altKeys].includes(modelKey) &&
+        modelKey !== config.key &&
         DynamicModelRegistry.inferFamilyAndPool(modelKey).quotaPool === config.key &&
         hasUsableQuotaInfo(info)
       ) {
@@ -236,7 +234,6 @@ export async function fetchProviderQuota(
     if (!data) return;
     const oldQuota = account.quota || [];
     const fresh = extractQuotas(data, oldQuota);
-    if (fresh.length === 0) return;
     const newModels = dynamicCatalog.updateFromEndpointResponse(
       data,
       accountId,
@@ -248,6 +245,7 @@ export async function fetchProviderQuota(
         `${account.config.email}: discovered ${newModels} Antigravity model(s) from quota response`,
       );
     }
+    if (fresh.length === 0) return;
     // Drop the previous Antigravity entries so the new ones fully replace
     // them; keep entries from OTHER providers (Ollama) so multi-provider
     // accounts accumulate quotas across credentials without overwriting

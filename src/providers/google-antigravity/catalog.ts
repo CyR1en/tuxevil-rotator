@@ -11,6 +11,7 @@
 
 import { dynamicCatalog } from "./dynamic-catalog.js";
 import { getModelSpec, getModelSpecOverride } from "../../compat/model-specs.js";
+import { applyModelAlias } from "../../types.js";
 
 export interface AntigravityModelSpec {
   id: string;
@@ -107,145 +108,6 @@ export function getAntigravityContextWindow(model: string): number {
   return FALLBACK_CONTEXT_WINDOW;
 }
 
-// Static Antigravity models every install lists, before dynamic discovery adds
-// the models each account reports.
-const MODEL_CATALOG = [
-  {
-    id: "gemini-3-flash",
-    family: "gemini-3-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-high",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-medium",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-low",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.6-flash-tiered",
-    family: "gemini-3.6-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.7-flash-tiered",
-    family: "gemini-3.7-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-high",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-medium",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.8-flash-low",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.1-pro-low",
-    family: "gemini-3.1-pro",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gemini-3.1-pro-high",
-    family: "gemini-3.1-pro",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "claude-sonnet-4-6",
-    family: "claude",
-    ctx: 1000000,
-    quotaPool: "claude",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "claude-opus-4-6-thinking",
-    family: "claude",
-    ctx: 1000000,
-    quotaPool: "claude",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "gpt-oss-120b-medium",
-    family: "gpt-oss",
-    ctx: 131072,
-    quotaPool: "claude",
-    multimodal: false,
-    tools: true,
-  },
-  {
-    id: "gemini-3.5-flash-lite",
-    family: "gemini-3.5-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: true,
-  },
-  {
-    id: "whisper-1",
-    family: "gemini-3.8-flash",
-    ctx: 1048576,
-    quotaPool: "gemini",
-    multimodal: true,
-    tools: false,
-  },
-] as const;
-
-/** Whether the rotator ships this id, as opposed to an account reporting it. */
-export function isBuiltInAntigravityModel(model: string): boolean {
-  const wanted = model.trim().toLowerCase();
-  return MODEL_CATALOG.some((entry) => entry.id.toLowerCase() === wanted);
-}
-
 export interface CompatModelEntry {
   id: string;
   family: string;
@@ -261,37 +123,46 @@ export interface CompatModelEntry {
 
 export function getEffectiveAntigravityModels(): CompatModelEntry[] {
   const dynamic = dynamicCatalog.getAllModels();
-  const seen = new Set(MODEL_CATALOG.map((model) => model.id.toLowerCase()));
-  const result: CompatModelEntry[] = MODEL_CATALOG.map((model) => {
+  const byId = new Map(dynamic.map((model) => [model.id.toLowerCase(), model]));
+  const toCompatModel = (
+    model: (typeof dynamic)[number],
+    id = model.id,
+    tools = model.tools,
+  ): CompatModelEntry => {
     const spec = getModelSpec(model.id);
-    const contextWindow = getModelSpecOverride(model.id)?.contextWindow ??
-      dynamicCatalog.getModelSpec(model.id)?.contextWindow;
     return {
-      ...model,
-      ctx: contextWindow ?? model.ctx,
+      id,
+      family: model.family,
+      ctx: spec.contextWindow ?? model.ctx,
+      quotaPool: model.quotaPool,
+      multimodal: model.multimodal,
+      tools,
       maxOutputTokens: spec.maxOutputTokens,
       thinkingBudget: spec.thinkingBudget,
       minThinkingBudget: spec.minThinkingBudget,
       isThinking: spec.isThinking,
     };
-  });
-  for (const m of dynamic) {
-    if (seen.has(m.id.toLowerCase())) continue;
-    seen.add(m.id.toLowerCase());
-    const spec = getModelSpec(m.id);
-    result.push({
-      id: m.id,
-      family: m.family,
-      ctx: spec.contextWindow ?? m.ctx,
-      quotaPool: m.quotaPool,
-      multimodal: m.multimodal,
-      tools: m.tools,
-      maxOutputTokens: spec.maxOutputTokens,
-      thinkingBudget: spec.thinkingBudget,
-      minThinkingBudget: spec.minThinkingBudget,
-      isThinking: spec.isThinking,
-    });
-  }
+  };
+  const result = dynamic.map((model) => toCompatModel(model));
 
+  // Keep the OpenAI audio compatibility name only while its configured target
+  // appears in a current Antigravity account snapshot.
+  if (!byId.has("whisper-1")) {
+    const target = applyModelAlias("whisper-1")
+      .trim()
+      .replace(/^models\//i, "")
+      .toLowerCase();
+    const backingModel = byId.get(target);
+    if (backingModel) result.push(toCompatModel(backingModel, "whisper-1", false));
+  }
   return result;
+}
+
+/** Whether an id or configured operator alias resolves to a current snapshot model. */
+export function isDynamicallyAvailableAntigravityModel(model: string): boolean {
+  const normalize = (value: string) => value.trim().replace(/^models\//i, "").toLowerCase();
+  return Boolean(
+    dynamicCatalog.getModel(normalize(model)) ??
+      dynamicCatalog.getModel(normalize(applyModelAlias(model))),
+  );
 }

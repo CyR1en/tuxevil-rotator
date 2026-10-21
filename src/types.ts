@@ -363,54 +363,17 @@ export interface ModelQuota {
 // variants (and gpt-oss) share one bucket, all Gemini variants share one.
 export const QUOTA_MODEL_KEYS: Record<
   string,
-  { key: string; altKeys: string[]; display: string }
+  { key: string; display: string }
 > = {
   claude: {
     key: "claude",
-    altKeys: [
-      "claude-opus-4-6-thinking",
-      "claude-opus-4-5-thinking",
-      "claude-opus-4-5",
-      "claude-sonnet-4-6-thinking",
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5-thinking",
-      "claude-sonnet-4-5",
-      "gpt-oss-120b-medium",
-      "gpt-oss-120b",
-    ],
     display: "Claude",
   },
   gemini: {
     key: "gemini",
-    altKeys: [
-      "gemini-3.1-pro",
-      "gemini-3.1-pro-low",
-      "gemini-3.1-pro-high",
-      "gemini-3-pro-high",
-      "gemini-3-pro-low",
-      "gemini-3-flash-agent",
-      "gemini-3-flash",
-      "gemini-3.6-flash",
-      "gemini-3.6-flash-high",
-      "gemini-3.6-flash-medium",
-      "gemini-3.6-flash-low",
-      "gemini-3.6-flash-tiered",
-      "gemini-3.7-flash-tiered",
-      "gemini-3.8-flash-low",
-      "gemini-3.8-flash-medium",
-      "gemini-3.8-flash-high",
-    ],
     display: "Gemini",
   },
 };
-
-const STATIC_ANTIGRAVITY_MODEL_IDS = new Set(
-  Object.values(QUOTA_MODEL_KEYS).flatMap(({ altKeys }) => altKeys),
-);
-
-export function isStaticAntigravityModel(model: string): boolean {
-  return STATIC_ANTIGRAVITY_MODEL_IDS.has(model.toLowerCase());
-}
 
 // Map request model names to quota model keys (family buckets).
 export function resolveQuotaModelKey(requestModel: string): string | null {

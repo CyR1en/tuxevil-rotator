@@ -14,6 +14,7 @@ import { Readable, type Duplex } from "node:stream";
 import {
   classifyEffortRoutingModel,
   getEffortRoutingRule,
+  applyModelAlias,
   resolveQuotaModelKey,
   resolveDisplayModelKey,
 } from "./types.js";
@@ -40,6 +41,7 @@ import {
   extractUsageFromSseEvent,
   GOOGLE_BENCHMARK_CONSTANTS,
 } from "./providers/google-antigravity/forward.js";
+import { isDynamicallyAvailableAntigravityModel } from "./providers/google-antigravity/catalog.js";
 export { forwardRequest, SseEventAccumulator, extractUsageFromSseEvent };
 import {
   serveStatusApi,
@@ -1267,6 +1269,19 @@ export async function withRotation<T>(
     ollamaModels: new Set(rotator.getOllamaModels?.() ?? []),
     codexModels: new Set(rotator.getCodexModels?.() ?? []),
   })?.id;
+  const modelQuotaFamily = resolveQuotaModelKey(model) ??
+    resolveQuotaModelKey(applyModelAlias(model));
+  if (
+    (providerId === DEFAULT_PROVIDER ||
+      (!providerId && (modelQuotaFamily === "claude" || modelQuotaFamily === "gemini"))) &&
+    !isDynamicallyAvailableAntigravityModel(model)
+  ) {
+    return {
+      ok: false,
+      status: 404,
+      errorText: `Model '${body.displayModel || model}' is not available in the active Antigravity model catalog`,
+    };
+  }
   const requestIsOff = (selectedProviderId = providerId): boolean => isRequestOff(rotator, {
     model,
     requestedModel: body.requestedModel,

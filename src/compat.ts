@@ -2602,11 +2602,10 @@ function getOpenAIAntigravityModels(
 /**
  * Build the OpenAI-compatible `/v1/models` catalog for the proxy.
  *
- * The static Antigravity baseline and dynamically-discovered Antigravity models
- * are included unless Antigravity is turned off. An active rotator also
- * contributes its other providers. Models turned off on the dashboard's Models
- * page are left out, and an id more than one provider lists appears once, owned
- * by the provider its requests go to.
+ * Dynamically discovered Antigravity models are included unless Antigravity is
+ * turned off. An active rotator also contributes its other providers. Models
+ * turned off on the dashboard's Models page are left out, and an id more than
+ * one provider lists appears once, owned by the provider its requests go to.
  */
 export function buildOpenAIModelCatalog(
   rotator?: AccountRotator,

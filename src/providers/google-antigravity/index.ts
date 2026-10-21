@@ -10,7 +10,11 @@ import type {
   ProviderModel,
   QuotaFetchContext,
 } from "../adapter.js";
-import { getEffectiveAntigravityModels, isBuiltInAntigravityModel } from "./catalog.js";
+import {
+  getEffectiveAntigravityModels,
+  isDynamicallyAvailableAntigravityModel,
+} from "./catalog.js";
+import { dynamicCatalog } from "./dynamic-catalog.js";
 import { fetchProviderQuota } from "./quota.js";
 import {
   forwardRequest,
@@ -30,6 +34,7 @@ import {
 import {
   TOKEN_URL,
   KICKSTART_MODEL_FOR_QUOTA_POOL,
+  applyModelAlias,
   resolveQuotaModelKey,
 } from "../../types.js";
 import type { AccountRuntime } from "../../types.js";
@@ -175,16 +180,19 @@ export const googleAntigravityAdapter: ProviderAdapter = {
       id: model.id,
       contextWindow: model.ctx,
       quotaPool: model.quotaPool,
-      source: isBuiltInAntigravityModel(model.id) ? "catalog" : "discovered",
+      source: "discovered",
     }));
   },
 
   ownsModel(model: string): boolean {
-    return resolveQuotaModelKey(model) !== null || model.includes("gemini") || model.includes("claude");
+    return isDynamicallyAvailableAntigravityModel(model);
   },
 
   getPoolKey(model: string): string {
-    return resolveQuotaModelKey(model) ?? model;
+    const normalize = (value: string) => value.trim().replace(/^models\//i, "");
+    const observed = dynamicCatalog.getModel(normalize(model)) ??
+      dynamicCatalog.getModel(normalize(applyModelAlias(model)));
+    return observed?.id ?? resolveQuotaModelKey(model) ?? model;
   },
 
   getBenchmark(account: AccountRuntime) {

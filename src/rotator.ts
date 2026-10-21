@@ -27,7 +27,6 @@ import {
   DEFAULT_QUOTA_POLL_INTERVAL_MS,
   MAX_QUOTA_POLL_INTERVAL_MS,
   MIN_QUOTA_POLL_INTERVAL_MS,
-  isStaticAntigravityModel,
   resolveQuotaModelKey,
   resolveDisplayModelKey,
 } from "./types.js";
@@ -1199,9 +1198,8 @@ export class AccountRotator {
 
   // Get quota % for a specific model on an account. Returns -1 if no data.
   private getModelQuota(account: AccountRuntime, modelKey: string): number {
-    const quotaKey = isStaticAntigravityModel(modelKey)
-      ? modelKey
-      : dynamicCatalog.resolveQuotaPool(modelKey) ?? modelKey;
+    const quotaKey = dynamicCatalog.resolveQuotaPool(modelKey) ??
+      resolveQuotaModelKey(modelKey) ?? modelKey;
     const q = account.quota.find((q) => q.modelKey === quotaKey) ??
       (quotaKey.startsWith(`${CODEX_QUOTA_MODEL_KEY}:`)
         ? account.quota.find((candidate) => candidate.modelKey === CODEX_QUOTA_MODEL_KEY)
@@ -1236,9 +1234,8 @@ export class AccountRotator {
     account: AccountRuntime,
     modelKey: string,
   ): ModelQuota["timerType"] {
-    const quotaKey = isStaticAntigravityModel(modelKey)
-      ? modelKey
-      : dynamicCatalog.resolveQuotaPool(modelKey) ?? modelKey;
+    const quotaKey = dynamicCatalog.resolveQuotaPool(modelKey) ??
+      resolveQuotaModelKey(modelKey) ?? modelKey;
     const q = account.quota.find((q) => q.modelKey === quotaKey) ??
       (quotaKey.startsWith(`${CODEX_QUOTA_MODEL_KEY}:`)
         ? account.quota.find((candidate) => candidate.modelKey === CODEX_QUOTA_MODEL_KEY)
@@ -3987,7 +3984,6 @@ export class AccountRotator {
   ): { reason: RoutingRejectionReason; detail: string } | null {
     const accountId = getAccountIdentity(account);
     if (
-      !isStaticAntigravityModel(modelKey) &&
       dynamicCatalog.hasOwnershipForModel(modelKey) &&
       !dynamicCatalog.hasModelForAccount(accountId, modelKey)
     ) {
@@ -4059,10 +4055,7 @@ export class AccountRotator {
     // capture a request that is pinned or routed to another provider.
     const provider = providerId ?? routedProviderId(this, model);
     if (!provider || provider === DEFAULT_PROVIDER) {
-      if (
-        !isStaticAntigravityModel(model) &&
-        dynamicCatalog.wasDiscovered(model)
-      ) return normalizedModel;
+      if (dynamicCatalog.wasDiscovered(model)) return normalizedModel;
       if (this.hasRelevantQuotaStateForModel(normalizedModel, Date.now())) {
         return normalizedModel;
       }
