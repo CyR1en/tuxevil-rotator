@@ -11,6 +11,7 @@ import type { AddressInfo, Socket } from "node:net";
 import { after, beforeEach, describe, it, mock } from "node:test";
 import type { QueryResult, QueryResultRow } from "pg";
 import { PostgresSettingsRepository } from "../src/settings-repository.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
 process.env.DATABASE_URL = "postgresql://audio-rotator-regressions.test/rotator";
@@ -330,6 +331,7 @@ function isTranscriptionError(status: number, message?: RegExp) {
 }
 
 beforeEach(() => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   virtualKeyRows.clear();
   virtualKeys.clearVirtualKeyCache();
   spendLogger.resetSpendLoggerForTests();

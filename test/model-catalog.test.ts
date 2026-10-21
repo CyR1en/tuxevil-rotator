@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { serveGeminiModels, serveOpenAIModels } from "../src/compat.js";
 import { serveModelsApi } from "../src/dashboard.js";
@@ -6,6 +6,7 @@ import { getModelSpec, setModelSpecsOverride } from "../src/compat/model-specs.j
 import { dynamicCatalog } from "../src/providers/google-antigravity/dynamic-catalog.js";
 import { setEffortRoutingOverride } from "../src/types.js";
 import { logger } from "../src/logger.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 function captureJson(render: (res: never) => void): unknown {
 	let raw = "";
@@ -19,7 +20,17 @@ function captureJson(render: (res: never) => void): unknown {
 }
 
 describe("model discovery", () => {
+	beforeEach(() => {
+		setAntigravityModelsForTest([
+			"gemini-3.7-flash-tiered",
+			"gemini-3.8-flash-low",
+			"gemini-3.8-flash-medium",
+			"gemini-3.8-flash-high",
+		]);
+	});
+
 	it("hides provider catalogs without active credentials", () => {
+		dynamicCatalog.reset();
 		const payload = captureJson((res) =>
 			serveOpenAIModels(res, {
 				hasActiveProvider: () => false,
@@ -27,12 +38,13 @@ describe("model discovery", () => {
 			} as never),
 		) as { data: Array<{ id: string; owned_by: string }> };
 
-		assert.ok(payload.data.some((model) => model.owned_by === "tuxevil-rotator"));
+		assert.ok(!payload.data.some((model) => model.owned_by === "tuxevil-rotator"));
 		assert.ok(!payload.data.some((model) => model.owned_by === "openai-codex"));
 		assert.ok(!payload.data.some((model) => model.owned_by === "ollama"));
 	});
 
 	it("includes only active provider catalogs", () => {
+		dynamicCatalog.reset();
 		const payload = captureJson((res) =>
 			serveOpenAIModels(res, {
 				hasActiveProvider: (providerId: string) =>
@@ -75,7 +87,7 @@ describe("model discovery", () => {
 		assert.equal(entries.length, 1);
 		const entry = entries[0];
 		assert.equal(entry.owned_by, "tuxevil-rotator");
-		assert.equal(entry.context_window, 1048576);
+		assert.equal(entry.context_window, 1_000_000);
 		assert.equal(entry.meta.family, "gemini-3.7-flash");
 		assert.equal(entry.meta.quota_pool, "gemini");
 		assert.equal(entry.meta.multimodal, true);
@@ -95,7 +107,7 @@ describe("model discovery", () => {
 		assert.equal(entries.length, 1);
 		const entry = entries[0];
 		assert.equal(entry.baseModelId, "gemini-3.7-flash");
-		assert.equal(entry.inputTokenLimit, 1048576);
+		assert.equal(entry.inputTokenLimit, 1_000_000);
 		assert.equal(entry.capabilities.tools, true);
 		assert.equal(entry.capabilities.multimodal, true);
 		assert.equal(entry.capabilities.quotaPool, "gemini");
@@ -133,7 +145,7 @@ describe("model discovery", () => {
 			const openAiEntries = openAiPayload.data.filter((model) => model.id === id);
 			assert.equal(openAiEntries.length, 1);
 			assert.equal(openAiEntries[0].owned_by, "tuxevil-rotator");
-			assert.equal(openAiEntries[0].context_window, 1048576);
+			assert.equal(openAiEntries[0].context_window, 1_000_000);
 			assert.equal(openAiEntries[0].meta.family, "gemini-3.8-flash");
 			assert.equal(openAiEntries[0].meta.quota_pool, "gemini");
 
@@ -142,7 +154,7 @@ describe("model discovery", () => {
 			);
 			assert.equal(geminiEntries.length, 1);
 			assert.equal(geminiEntries[0].baseModelId, "gemini-3.8-flash");
-			assert.equal(geminiEntries[0].inputTokenLimit, 1048576);
+			assert.equal(geminiEntries[0].inputTokenLimit, 1_000_000);
 		}
 	});
 
@@ -309,12 +321,19 @@ describe("model discovery", () => {
 });
 
 describe("effort routing catalog swap", () => {
+	beforeEach(() => dynamicCatalog.reset());
+
 	afterEach(() => {
 		setEffortRoutingOverride(null);
 		dynamicCatalog.reset();
 	});
 
 	it("swaps targets only in /v1/models while /v1beta/models retains concrete models", () => {
+		setAntigravityModelsForTest([
+			"gemini-3.8-flash-low",
+			"gemini-3.8-flash-medium",
+			"gemini-3.8-flash-high",
+		]);
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {
 				defaultEffort: "medium",
@@ -338,7 +357,7 @@ describe("effort routing catalog swap", () => {
 		const aliasEntries = openAiPayload.data.filter((m) => m.id === "gemini-3.8-flash");
 		assert.equal(aliasEntries.length, 1);
 		assert.equal(aliasEntries[0].owned_by, "tuxevil-rotator");
-		assert.equal(aliasEntries[0].context_window, 1048576);
+		assert.equal(aliasEntries[0].context_window, 1_000_000);
 		assert.equal(aliasEntries[0].meta.family, "gemini-3.8-flash");
 		assert.equal(aliasEntries[0].meta.quota_pool, "gemini");
 
@@ -430,6 +449,11 @@ describe("effort routing catalog swap", () => {
 	});
 
 	it("keeps unmapped variants visible when only partial targets are configured", () => {
+		setAntigravityModelsForTest([
+			"gemini-3.8-flash-low",
+			"gemini-3.8-flash-medium",
+			"gemini-3.8-flash-high",
+		]);
 		setEffortRoutingOverride({
 			"gemini-3.8-flash": {
 				defaultEffort: "high",
@@ -451,6 +475,7 @@ describe("effort routing catalog swap", () => {
 	});
 
 	it("fails soft when default target is absent (alias not added, targets not hidden)", () => {
+		setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
 		setEffortRoutingOverride({
 			"my-custom-alias": {
 				defaultEffort: "medium",
@@ -537,6 +562,7 @@ describe("effort routing catalog swap", () => {
 	it("hides dynamically discovered targets as well", () => {
 		dynamicCatalog.updateFromEndpointResponse({
 			models: {
+				"gemini-3.8-flash-medium": { quotaInfo: { remainingFraction: 1 } },
 				"gemini-3.8-flash-dynamic-target": {
 					quotaInfo: { remainingFraction: 1 },
 					displayName: "Gemini 3.8 Flash Dynamic",

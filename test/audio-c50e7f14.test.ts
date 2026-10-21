@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RotatorAudioSession } from "../src/audio-transcription.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 test("c50e7f14: a failed audio segment emits one error across session completion", async () => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   const errors: Array<{ message: string; terminal: boolean | undefined }> = [];
   let signalEntered!: () => void;
   let releaseUpstream!: () => void;

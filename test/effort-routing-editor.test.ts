@@ -43,6 +43,7 @@ const [effort, modelCatalog, types, compat, dashboard, revision, overrides, admi
     import("../src/db-store.js"),
     import("../src/providers/registry.js"),
   ]);
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const key = (id: string) => `google-antigravity/${id}`;
 
@@ -53,6 +54,20 @@ const FLASH_38: EffortRoutingRule = {
 
 /** A rotator stub whose switches and effort routes change its config like the real one. */
 function makeSource(settings: Partial<Config> = {}, ollama: string[] = ["glm-5.1"]) {
+  setAntigravityModelsForTest([
+    "gemini-3-flash",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "gemini-3.1-pro-medium",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash-low",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-high",
+    "gemini-3.8-flash-low",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-high",
+    "gemini-pro-agent",
+  ]);
   let config = { accounts: [], ...settings } as Config;
   const source = {
     getConfig: () => config,
@@ -485,6 +500,10 @@ describe("effort routing applies without a restart", () => {
     const rotator = new rotatorModule.AccountRotator(baseConfig());
     rotator.stopQuotaPolling();
     const account = (rotator as unknown as { accounts: AccountRuntime[] }).accounts[0];
+    setAntigravityModelsForTest(
+      ["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"],
+      [rotatorModule.getAccountIdentity(account)],
+    );
     account.accessToken = "test-access-token";
     account.tokenExpires = Date.now() + 3_600_000;
     account.quota = [{
@@ -553,6 +572,11 @@ describe("effort routing applies without a restart", () => {
   it("saves and deletes routes from the Models page", async () => {
     const rotator = new rotatorModule.AccountRotator(baseConfig());
     rotator.stopQuotaPolling();
+    setAntigravityModelsForTest([
+      "gemini-3.8-flash-low",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-high",
+    ]);
     const stored = () => (JSON.parse(readFileSync(join(fixtureDir, "accounts.json"), "utf8")) as Config).effortRouting;
     const saved = await rotator.saveEffortRoute(null, { alias: "gemini-3.8-flash", defaultEffort: "medium", targets: FLASH_38.targets });
     assert.ok(saved.ok, JSON.stringify(saved));

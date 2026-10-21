@@ -3,8 +3,10 @@ import { createServer } from "node:http";
 import { it } from "node:test";
 import { pcmToWav, RotatorAudioSession } from "../src/audio-transcription.js";
 import { ANTIGRAVITY_ENDPOINTS } from "../src/types.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 it("transcribes the bytes accepted before the caller reuses its PCM buffer", async () => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   const originalEndpoint = ANTIGRAVITY_ENDPOINTS[0];
   const capturedBodies: Array<Record<string, any>> = [];
   const events: Array<Record<string, any>> = [];

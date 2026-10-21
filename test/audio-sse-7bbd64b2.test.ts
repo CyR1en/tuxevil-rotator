@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 test("rejects malformed JSON in an upstream SSE data event", async () => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   const originalTelemetry = process.env.PI_ROTATOR_TELEMETRY;
   process.env.PI_ROTATOR_TELEMETRY = "off";
   const originalFetch = globalThis.fetch;

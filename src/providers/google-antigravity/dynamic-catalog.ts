@@ -285,13 +285,6 @@ export class DynamicModelRegistry {
     );
     let newModelsCount = 0;
 
-    if (data.defaultAgentModelId) {
-      this.defaultAgentModelIds.delete(key);
-      this.defaultAgentModelIds.set(key, data.defaultAgentModelId);
-    } else {
-      this.defaultAgentModelIds.delete(key);
-    }
-
     for (const [rawId, info] of Object.entries(data.models)) {
       const normalizedId = rawId.trim();
       const lowerId = normalizedId.toLowerCase();
@@ -354,6 +347,34 @@ export class DynamicModelRegistry {
       this.discoveredModels.set(lowerId, { id: normalizedId, quotaPool });
       this.ownershipScopedModels.add(lowerId);
       if (!knownBefore.has(lowerId)) newModelsCount++;
+    }
+
+    const reportedIds = Object.keys(data.models);
+    const hasUsableQuotaData = reportedIds.some((id) =>
+      Object.keys(data.models[id]?.quotaInfo ?? {}).length > 0,
+    );
+    if (
+      reportedIds.length > 0 &&
+      next.size === 0 &&
+      !hasUsableQuotaData &&
+      reportedIds.every((id) => {
+        const lower = id.toLowerCase();
+        return RESERVED_QUOTA_MODEL_IDS.has(lower) ||
+          lower.startsWith("chat_") ||
+          lower.startsWith("tab_");
+      })
+    ) {
+      // Quota-family rows without usable quota values are not a fresh model
+      // snapshot. Keep the last model list instead of clearing it on a
+      // response whose only model-like key was malformed quota data.
+      return 0;
+    }
+
+    if (data.defaultAgentModelId) {
+      this.defaultAgentModelIds.delete(key);
+      this.defaultAgentModelIds.set(key, data.defaultAgentModelId);
+    } else {
+      this.defaultAgentModelIds.delete(key);
     }
 
     this.accountModels.set(key, next);

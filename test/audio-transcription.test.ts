@@ -6,6 +6,7 @@ import https from "node:https";
 import { describe, it, mock } from "node:test";
 import { applyModelAlias } from "../src/types.js";
 import { buildOpenAIModelCatalog } from "../src/compat.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 import {
   AntigravityAudioSession,
   handleOpenAIAudioTranscriptions,
@@ -209,6 +210,7 @@ describe("whisper-1 audio transcription support", () => {
   });
 
   it("includes whisper-1 in OpenAI model catalog", () => {
+    setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
     const catalog = buildOpenAIModelCatalog();
     const whisper = catalog.find((m) => m.id === "whisper-1");
 

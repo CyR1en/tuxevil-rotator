@@ -8,6 +8,7 @@ import { startProxy } from "../src/proxy.js";
 import { stopNotificationPoller } from "../src/notification-poller.js";
 import { stopVersionChecker } from "../src/version-check.js";
 import { setPersistedAdminToken } from "../src/admin-auth.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 class FakeResponse extends EventEmitter {
   constructor(public statusCode = 200) {
@@ -497,6 +498,7 @@ describe("MindWhisperAI Live Audio with Rotator Native Session (Opción 1)", () 
   }
 
   beforeEach(async () => {
+    setAntigravityModelsForTest(["gemini-2.5-flash"]);
     process.env.PI_ROTATOR_TELEMETRY = "off";
     setPersistedAdminToken("test-token");
     const rotator = makeActiveRotator();

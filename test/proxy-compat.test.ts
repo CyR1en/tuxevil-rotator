@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { openAIToAntigravityBody, resetResponsesStoreForTests } from "../src/compat.js";
 import {
 	classifyUpstreamResponse,
@@ -24,6 +24,7 @@ import { stopNotificationPoller } from "../src/notification-poller.js";
 import type { AccountRotator } from "../src/rotator.js";
 import { logger } from "../src/logger.js";
 import { OPENCODE_ZEN_RESPONSES_URL } from "../src/providers/opencode-zen/catalog.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 type Capture = {
 	url: string;
@@ -33,6 +34,21 @@ type Capture = {
 
 const endpointOverrides = ANTIGRAVITY_ENDPOINTS as unknown as string[];
 const originalEndpoints = [...endpointOverrides];
+
+beforeEach(() => {
+	setAntigravityModelsForTest([
+		"claude-sonnet-4-6",
+		"gemini-3-flash",
+		"gemini-3.1-pro",
+		"gemini-3.1-pro-low",
+		"gemini-3.1-pro-high",
+		"gemini-pro-agent",
+		"gemini-3.8-flash-low",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-high",
+		"gemini-dynamic-preview",
+	]);
+});
 
 afterEach(() => {
 	endpointOverrides.splice(0, endpointOverrides.length, ...originalEndpoints);

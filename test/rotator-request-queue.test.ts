@@ -124,7 +124,7 @@ function releaseAll(
 }
 
 describe("Antigravity request queue", () => {
-  it("routes a dynamically discovered model only to an account that advertised it", async () => {
+  it("routes a discovered model only to its advertiser, even when another account has capacity", async () => {
     const { rotator, accounts } = makeRotator(["project-a", "project-b"]);
     dynamicCatalog.reset();
     dynamicCatalog.updateFromEndpointResponse({
@@ -146,12 +146,12 @@ describe("Antigravity request queue", () => {
 
     accounts[0].inFlightByModel.gemini = 5;
     accounts[0].inFlightRequests = 5;
-    const staticSelection = (rotator as any).pickBestModelAccount(
+    const unownedSelection = (rotator as any).pickBestModelAccount(
       "gemini-3.8-flash-high",
       Date.now(),
       -1,
     );
-    assert.equal(staticSelection, accounts[1], "static fallback must not depend on discovery");
+    assert.equal(unownedSelection, null, "a different account must not receive a model it did not advertise");
   });
 
   it("isolates dynamic routing for same-email accounts with different projects", () => {

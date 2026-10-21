@@ -2201,6 +2201,7 @@ export class AccountRotator {
                 waiter.model
                   ? this.resolveRequestPoolKey(waiter.model, waiter.providerId)
                   : undefined,
+                waiter.providerId,
               );
             }
             progressed = true;
@@ -2409,7 +2410,7 @@ export class AccountRotator {
           }
         }
       }
-      this.startRequest(current, modelKey ?? undefined);
+      this.startRequest(current, modelKey ?? undefined, providerId);
       if (modelKey && state) {
         state.requestsOnActiveAccount++;
         this.scheduleStateSave();
@@ -2423,7 +2424,7 @@ export class AccountRotator {
           this.scheduleStateSave();
         }
         this.refundTokenBucket(current, Date.now());
-        this.finishRequest(current, modelKey ?? undefined);
+        this.finishRequest(current, modelKey ?? undefined, providerId);
         if (modelKey && this.isCodexPoolKey(modelKey)) {
           return this.rotateModelForRequest(modelKey, now, idx);
         }
@@ -2595,7 +2596,7 @@ export class AccountRotator {
     forRequest = false,
   ): Promise<AccountRuntime> {
     if (forRequest) {
-      this.startRequest(account, modelKey);
+      this.startRequest(account, modelKey, getProviderIdForPoolKey(modelKey));
     }
     const newIdx = this.accounts.indexOf(account);
     const quota = this.getModelQuota(account, modelKey);
@@ -2618,7 +2619,7 @@ export class AccountRotator {
           state.requestsOnActiveAccount = Math.max(0, state.requestsOnActiveAccount - 1);
         }
         this.refundTokenBucket(account, Date.now());
-        this.finishRequest(account, modelKey);
+        this.finishRequest(account, modelKey, getProviderIdForPoolKey(modelKey));
       }
       throw err;
     }
@@ -3936,12 +3937,13 @@ export class AccountRotator {
     this.scheduleStateSave();
   }
 
-  startRequest(account: AccountRuntime, modelKey?: string): void {
+  startRequest(account: AccountRuntime, modelKey?: string, providerId?: string): void {
     const key = modelKey ?? "__default__";
+    const requestProviderId = providerId ?? getProviderIdForPoolKey(key);
     // Ollama Cloud imposes no per-account concurrency limit, so its
     // requests must not activate in-flight tracking at all (the monthly
     // pool and raw ollama model names from benchmark probes).
-    if (isOllamaQuotaPoolKey(key) || this.ollamaModels.has(key)) {
+    if (isOllamaQuotaPoolKey(key) || requestProviderId === "ollama") {
       this.consumeTokenBucket(account, Date.now());
       return;
     }
@@ -3951,9 +3953,10 @@ export class AccountRotator {
     this.consumeTokenBucket(account, Date.now());
   }
 
-  finishRequest(account: AccountRuntime, modelKey?: string): void {
+  finishRequest(account: AccountRuntime, modelKey?: string, providerId?: string): void {
     const key = modelKey ?? "__default__";
-    if (isOllamaQuotaPoolKey(key) || this.ollamaModels.has(key)) return;
+    const requestProviderId = providerId ?? getProviderIdForPoolKey(key);
+    if (isOllamaQuotaPoolKey(key) || requestProviderId === "ollama") return;
     account.inFlightByModel[key] = Math.max(
       0,
       (account.inFlightByModel[key] ?? 0) - 1,

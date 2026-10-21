@@ -1,7 +1,11 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { dynamicCatalog } from "../src/providers/google-antigravity/dynamic-catalog.js";
-import { getAntigravityContextWindow } from "../src/providers/google-antigravity/catalog.js";
+import {
+  getAntigravityContextWindow,
+  getEffectiveAntigravityModels,
+  isDynamicallyAvailableAntigravityModel,
+} from "../src/providers/google-antigravity/catalog.js";
 import {
   isTieredEffortModel,
   openAIToAntigravityBody,
@@ -16,9 +20,29 @@ describe("DynamicModelRegistry", () => {
     dynamicCatalog.reset();
   });
 
-  it("keeps the static baseline outside the dynamic registry", () => {
+  it("starts with an empty dynamic registry", () => {
     assert.deepEqual(dynamicCatalog.getAllModels(), []);
     assert.equal(dynamicCatalog.getModel("gemini-3.8-flash-high"), undefined);
+  });
+
+  it("publishes only Antigravity models present in the current quota snapshot", () => {
+    assert.deepEqual(getEffectiveAntigravityModels().map(({ id }) => id), []);
+    assert.equal(isDynamicallyAvailableAntigravityModel("claude-opus-4-6-thinking"), false);
+
+    dynamicCatalog.updateFromEndpointResponse({
+      models: {
+        "gemini-future-flash": {
+          quotaInfo: { remainingFraction: 0.9 },
+        },
+      },
+    });
+
+    assert.deepEqual(
+      getEffectiveAntigravityModels().map(({ id }) => id),
+      ["gemini-future-flash"],
+    );
+    assert.equal(isDynamicallyAvailableAntigravityModel("gemini-future-flash"), true);
+    assert.equal(isDynamicallyAvailableAntigravityModel("claude-opus-4-6-thinking"), false);
   });
 
   it("dynamically ingests new models from fetchAvailableModels response", () => {

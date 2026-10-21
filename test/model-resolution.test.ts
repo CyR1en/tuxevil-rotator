@@ -250,31 +250,15 @@ describe("model resolution", () => {
 		);
 	});
 
-	it("does not treat gemini-3.7-flash low/medium/high as supported virtual models", () => {
+	it("maps unsupported gemini-3.7-flash variants to the generic display key", () => {
 		for (const variant of ["low", "medium", "high"]) {
 			const id = `gemini-3.7-flash-${variant}`;
 			// Falls back to the generic Flash display key, never a 3.7 virtual key.
 			assert.equal(resolveDisplayModelKey(id), "gemini-3-flash");
-			// No quota alt-key or alias entry is created for the virtual variant.
-			assert.ok(!QUOTA_MODEL_KEYS.gemini.altKeys.includes(id));
 		}
 	});
 
-	it("appends gemini-3.7-flash-tiered exactly once to the gemini quota altKeys", () => {
-		const altKeys = QUOTA_MODEL_KEYS.gemini.altKeys;
-		const matches = altKeys.filter((k) => k === "gemini-3.7-flash-tiered");
-		assert.equal(matches.length, 1);
-	});
-
-	it("includes each native gemini-3.8-flash id exactly once in quota altKeys", () => {
-		const altKeys = QUOTA_MODEL_KEYS.gemini.altKeys;
-		for (const variant of ["low", "medium", "high"]) {
-			const id = `gemini-3.8-flash-${variant}`;
-			assert.equal(altKeys.filter((key) => key === id).length, 1);
-		}
-	});
-
-	it("extracts gemini pool quota via a gemini-3.8-flash alt key", () => {
+	it("extracts gemini pool quota via a dynamically reported gemini-3.8 model id", () => {
 		const quotas = extractQuotas({
 			models: {
 				"gemini-3.8-flash-high": {
@@ -288,7 +272,7 @@ describe("model resolution", () => {
 		})), [{ key: "gemini", percent: 73 }]);
 	});
 
-	it("extracts gemini pool quota via the gemini-3.7-flash-tiered alt key", () => {
+	it("extracts gemini pool quota via a dynamically reported gemini-3.7 model id", () => {
 		const data = {
 			models: {
 				"gemini-3.7-flash-tiered": {
@@ -298,7 +282,7 @@ describe("model resolution", () => {
 		};
 		const quotas = extractQuotas(data, []);
 		const gemini = quotas.find((q) => q.modelKey === "gemini");
-		assert.ok(gemini, "alt-key extraction should surface the shared gemini pool");
+		assert.ok(gemini, "family inference should surface the shared gemini pool");
 		assert.equal(gemini.displayName, "Gemini");
 		assert.equal(gemini.percentRemaining, 42);
 		// No other pool key present in the stub response.

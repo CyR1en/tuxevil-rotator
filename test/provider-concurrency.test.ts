@@ -135,13 +135,29 @@ describe("AccountRotator concurrency rules per provider", () => {
     acc.inFlightByModel = {};
     const rotator = makeRotator(acc);
     rotator.setOllamaModels(["gemma4:31b"]);
-    rotator.startRequest(acc, "gemma4:31b");
-    rotator.finishRequest(acc, "gemma4:31b");
+    rotator.startRequest(acc, "gemma4:31b", "ollama");
+    rotator.finishRequest(acc, "gemma4:31b", "ollama");
     assert.deepEqual(
       acc.inFlightByModel,
       {},
       "Raw Ollama model names must not be tracked as in-flight",
     );
+    assert.equal(acc.inFlightRequests, 0);
+  });
+
+  it("tracks a Google model even when Ollama advertises the same id", () => {
+    const acc = makeAccount("google-antigravity", "gemini", 0);
+    acc.inFlightByModel = {};
+    const rotator = makeRotator(acc);
+    const model = "gemini-3.8-flash-high";
+    rotator.setOllamaModels([model]);
+
+    rotator.startRequest(acc, model, "google-antigravity");
+    assert.equal(acc.inFlightByModel[model], 1);
+    assert.equal(acc.inFlightRequests, 1);
+
+    rotator.finishRequest(acc, model, "google-antigravity");
+    assert.deepEqual(acc.inFlightByModel, {});
     assert.equal(acc.inFlightRequests, 0);
   });
 

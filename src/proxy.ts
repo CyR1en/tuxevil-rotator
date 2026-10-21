@@ -1086,7 +1086,7 @@ export async function benchmarkAccount(
     error: `${benchmarkProvider.displayName} is turned off on the Models page`,
   };
   if (turnedOff()) return turnedOffResult;
-  rotator.startRequest(account, benchmarkSpec.body.model);
+  rotator.startRequest(account, benchmarkSpec.body.model, benchmarkProvider.id);
   const timeoutController = new AbortController();
   const timeout = setTimeout(
     () => timeoutController.abort(new Error("Benchmark timeout")),
@@ -1131,7 +1131,7 @@ export async function benchmarkAccount(
     return benchmarkFailure(account, startedAt, formatError(err), ttfbMs);
   } finally {
     clearTimeout(timeout);
-    rotator.finishRequest(account, benchmarkSpec.body.model);
+    rotator.finishRequest(account, benchmarkSpec.body.model, benchmarkProvider.id);
   }
 }
 
@@ -1350,7 +1350,7 @@ export async function withRotation<T>(
     const releaseCurrentAccount = (): void => {
       if (accountReleased) return;
       accountReleased = true;
-      rotator.finishRequest(account, modelKey);
+      rotator.finishRequest(account, modelKey, providerId);
     };
     const rotateAndRelease = async (): Promise<AccountRuntime | null> => {
       releaseCurrentAccount();
@@ -1870,7 +1870,7 @@ async function handleProxyRequest(
     const releaseCurrentAccount = (): void => {
       if (accountReleased) return;
       accountReleased = true;
-      rotator.finishRequest(account, modelKey);
+      rotator.finishRequest(account, modelKey, providerId);
     };
     const rotateAndRelease = async (): Promise<AccountRuntime | null> => {
       releaseCurrentAccount();
@@ -2224,6 +2224,7 @@ async function handleCodeAssistPassthrough(
       rotator.finishRequest(
         account,
         resolveQuotaModelKey(CODE_ASSIST_ROUTING_MODEL) ?? undefined,
+        DEFAULT_PROVIDER,
       );
     };
 

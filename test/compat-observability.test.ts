@@ -28,6 +28,7 @@ import {
   type AccountRuntime,
 } from "../src/types.js";
 import type { AccountRotator } from "../src/rotator.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 type RequestLogCapture = {
   model: string;
@@ -180,6 +181,15 @@ function createRotatorStub(
   useOllamaAccount = false,
   useCodexAccount = false,
 ): AccountRotator {
+  if (!useOllamaAccount && !useCodexAccount) {
+    setAntigravityModelsForTest([
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "claude-sonnet-4-6",
+      "gemini-3-flash",
+      "muse-spark-1.3-contributor-free",
+    ]);
+  }
   const account = useCodexAccount
     ? createCodexAccount()
     : useOllamaAccount

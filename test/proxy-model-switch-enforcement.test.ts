@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import type { RequestBody, RotationOutcome } from "../src/proxy.js";
 import type { AccountConfig, AccountRuntime, Config } from "../src/types.js";
+import { getAccountIdentity } from "../src/account-identity.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "proxy-model-switches-"));
 process.env.TUXEVIL_ROTATOR_DIR = testDir;
@@ -134,6 +136,10 @@ function makeRotator(overrides: Partial<Config> = {}, count = 1) {
   rotator.stopQuotaPolling();
   rotators.push(rotator);
   const accounts = (rotator as unknown as { accounts: AccountRuntime[] }).accounts;
+  setAntigravityModelsForTest(
+    [MODEL, EFFORT_ALIAS, EFFORT_TARGET, "gemini-3.1-pro-high", "gemini-pro-agent"],
+    accounts.map(getAccountIdentity),
+  );
   for (const account of accounts) {
     account.accessToken = "test-access-token";
     account.tokenExpires = Date.now() + 3_600_000;
@@ -261,7 +267,7 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     const pending = withRotation(rotator, body.model, {}, body, (response) => response.text());
     assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
     await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
-    rotator.finishRequest(held, "gemini");
+    rotator.finishRequest(held, rotator.resolveQuotaModelKeyForDisplay(body.model, GOOGLE));
     const outcome = await pending;
     assertOff(outcome);
     if (!outcome.ok) assert.match(outcome.errorText, /gemini-3\.8-flash-low/);
@@ -317,7 +323,7 @@ describe("Models switch enforcement at request admission and dispatch", () => {
       assert.equal(await enteredAdmission, EFFORT_TARGET, "the production handler must translate before admission");
       assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
       await rotator.setModelsEnabled([`${GOOGLE}/${EFFORT_ALIAS}`], false);
-      rotator.finishRequest(held, "gemini");
+      rotator.finishRequest(held, rotator.resolveQuotaModelKeyForDisplay(EFFORT_TARGET, GOOGLE));
       const response = await pendingResponse;
       const json = await response.json() as { error: { message: string } };
       assert.equal(response.status, 404);
@@ -375,10 +381,16 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     const { rotator, accounts } = makeRotator();
     const held = await rotator.getActiveAccount(MODEL, undefined, GOOGLE);
     assert.ok(held);
-    const pending = withRotation(rotator, MODEL, {}, requestBody(), (response) => response.text());
+    const pending = withRotation(
+      rotator,
+      MODEL,
+      {},
+      requestBody({ providerId: GOOGLE }),
+      (response) => response.text(),
+    );
     assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
     await rotator.setProviderEnabled(GOOGLE, false);
-    rotator.finishRequest(held, "gemini");
+    rotator.finishRequest(held, rotator.resolveQuotaModelKeyForDisplay(MODEL, GOOGLE));
     assertOff(await pending);
     assert.equal(captures.length, 0);
     assertReleased(accounts);
@@ -417,10 +429,11 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     rotator.setOllamaModels([MODEL]);
     const held = await rotator.getActiveAccount(MODEL, undefined, GOOGLE);
     assert.ok(held);
-    const pending = withRotation(rotator, MODEL, {}, requestBody(), (response) => response.text());
+    const body = requestBody({ providerId: GOOGLE });
+    const pending = withRotation(rotator, MODEL, {}, body, (response) => response.text());
     assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
     await rotator.setModelsEnabled([`${GOOGLE}/${MODEL}`], false);
-    rotator.finishRequest(held, "gemini");
+    rotator.finishRequest(held, rotator.resolveQuotaModelKeyForDisplay(MODEL, GOOGLE));
     assertOff(await pending);
     assert.equal(captures.length, 0, "the queued Google envelope must not be rerouted to Ollama");
     assertReleased(accounts);
@@ -617,7 +630,7 @@ describe("Models switch enforcement at request admission and dispatch", () => {
     await enteredAdmission;
     assert.equal((rotator as unknown as { requestWaiters: unknown[] }).requestWaiters.length, 1);
     await rotator.setModelsEnabled([`${GOOGLE}/${MODEL}`], false);
-    rotator.finishRequest(held, "gemini");
+    rotator.finishRequest(held, rotator.resolveQuotaModelKeyForDisplay(MODEL, GOOGLE));
     const response = await pendingResponse;
     assert.equal(response.status, 404);
     assert.match(await response.text(), /turned off/);

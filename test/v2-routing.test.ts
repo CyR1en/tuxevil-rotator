@@ -1,9 +1,10 @@
-import { describe, it, before, after, afterEach } from "node:test";
+import { describe, it, before, after, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../src/types.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const savedEnv = {
   TUXEVIL_ROTATOR_DIR: process.env.TUXEVIL_ROTATOR_DIR,
@@ -22,7 +23,9 @@ delete process.env.PI_ROTATOR_DATABASE_URL;
 // These modules resolve their config paths during import, so load them only
 // after the isolated test directory has been selected above.
 const { AccountRotator } = await import("../src/rotator.js");
-const { initDb, closeDb, getCachedState } = await import("../src/db-store.js");
+const { dynamicCatalog } = await import("../src/providers/google-antigravity/dynamic-catalog.js");
+const { getAccountIdentity } = await import("../src/account-identity.js");
+const { initDb, closeDb } = await import("../src/db-store.js");
 const { setPersistedAdminToken } = await import("../src/admin-auth.js");
 const { getProviderAdapter } = await import("../src/providers/registry.js");
 const { clearCodexQuotaCache, CODEX_UNSTARTED_TIMER_THRESHOLD_SECONDS } = await import("../src/providers/openai-codex/quota.js");
@@ -57,7 +60,32 @@ function makeConfig(): Config {
   };
 }
 
+function advertiseGoogleModelForRotator(rotator: any): void {
+  const accountIds = rotator.accounts
+    .filter((account: any) => account.config.credentials?.some(
+      (credential: any) => credential.provider === "google-antigravity",
+    ))
+    .map((account: any) => getAccountIdentity(account));
+  setAntigravityModelsForTest(["gemini-3.1-pro"], accountIds);
+}
+
 describe("v2 routing and status", () => {
+  beforeEach(() => {
+    dynamicCatalog.reset();
+    const snapshot = {
+      models: Object.fromEntries([
+        "gemini-3.1-pro",
+        "gemini-3-flash",
+        "gemini-3.8-flash-high",
+        "claude-opus-4-6-thinking",
+      ].map((id) => [id, { quotaInfo: { remainingFraction: 1 } }])),
+    };
+    const accountIds = makeConfig().accounts!.map((account) => getAccountIdentity(account));
+    for (const accountId of accountIds) {
+      dynamicCatalog.updateFromEndpointResponse(snapshot, accountId);
+    }
+  });
+
   it("merges different account catalogs without losing models or discovered metadata", async () => {
     const { getCodexModel, setDiscoveredCodexModels } = await import("../src/providers/openai-codex/catalog.js");
     const config = makeConfig();
@@ -159,9 +187,10 @@ describe("v2 routing and status", () => {
   it("keeps timer-first routing and uses tier as a tie-breaker", () => {
     const rotator = new AccountRotator(makeConfig()) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     rotator.accounts[0].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 50,
         resetTime: null,
@@ -170,7 +199,7 @@ describe("v2 routing and status", () => {
     ];
     rotator.accounts[1].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 50,
         resetTime: null,
@@ -1187,9 +1216,10 @@ describe("v2 routing and status", () => {
     config.routingPolicy = "quota-first";
     const rotator = new AccountRotator(config) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     rotator.accounts[0].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 90,
         resetTime: null,
@@ -1198,7 +1228,7 @@ describe("v2 routing and status", () => {
     ];
     rotator.accounts[1].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 50,
         resetTime: null,
@@ -1218,9 +1248,10 @@ describe("v2 routing and status", () => {
     config.tokenBucketEnabled = true;
     const rotator = new AccountRotator(config) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     rotator.accounts[0].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 95,
         resetTime: null,
@@ -1229,7 +1260,7 @@ describe("v2 routing and status", () => {
     ];
     rotator.accounts[1].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 85,
         resetTime: null,
@@ -1246,7 +1277,7 @@ describe("v2 routing and status", () => {
 
     const status = rotator.getStatus();
     assert.equal(
-      status.routingDiagnostics["gemini-3.1-pro"].accounts[0].rejectedReason,
+      status.routingDiagnostics.gemini.accounts[0].rejectedReason,
       "token-bucket-empty",
     );
   });
@@ -1400,7 +1431,7 @@ describe("v2 routing and status", () => {
     const account = rotator.accounts[0];
     account.quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 50,
         resetTime: null,
@@ -1453,6 +1484,7 @@ describe("v2 routing and status", () => {
     ];
     const rotator = new AccountRotator(config) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     rotator.ensureValidTokenForModel = async () => {};
     rotator.modelState.delete("gemini");
     rotator.defaultIndex = 0;
@@ -1502,6 +1534,7 @@ describe("v2 routing and status", () => {
     ];
     const rotator = new AccountRotator(config) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     rotator.ensureValidTokenForModel = async () => {};
     rotator.defaultIndex = 0;
     rotator.modelState.set("gemini", {
@@ -1575,10 +1608,11 @@ describe("v2 routing and status", () => {
   it("marks positive-quota accounts as exhausted once local daily safety budget is spent", () => {
     const rotator = new AccountRotator(makeConfig()) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     for (const account of rotator.accounts) {
       account.quota = [
         {
-          modelKey: "gemini-3.1-pro",
+          modelKey: "gemini",
           displayName: "G3.1Pro",
           percentRemaining: 44,
           resetTime: null,
@@ -1637,10 +1671,11 @@ describe("v2 routing and status", () => {
     ];
     const rotator = new AccountRotator(config) as any;
     rotator.stopQuotaPolling();
+    advertiseGoogleModelForRotator(rotator);
     for (const account of rotator.accounts.slice(0, 3)) {
       account.quota = [
         {
-          modelKey: "gemini-3.1-pro",
+          modelKey: "gemini",
           displayName: "G3.1Pro",
           percentRemaining: 0,
           resetTime: null,
@@ -1650,7 +1685,7 @@ describe("v2 routing and status", () => {
     }
     rotator.accounts[3].quota = [
       {
-        modelKey: "gemini-3.1-pro",
+        modelKey: "gemini",
         displayName: "G3.1Pro",
         percentRemaining: 44,
         resetTime: null,
@@ -1659,8 +1694,7 @@ describe("v2 routing and status", () => {
     ];
     rotator.accounts[3].dailyRequestCount = 350;
 
-    const reason =
-      rotator.getStatus().routingDiagnostics["gemini-3.1-pro"].reason;
+    const reason = rotator.getStatus().routingDiagnostics.gemini.reason;
     assert.match(reason, /daily account budget exhausted/);
     assert.match(reason, /quota is exhausted for this model/);
     assert.ok(

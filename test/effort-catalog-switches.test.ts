@@ -30,6 +30,7 @@ const [compat, modelCatalog, types, adminAuth, proxy, versionChecker, notificati
     import("../src/version-check.js"),
     import("../src/notification-poller.js"),
   ]);
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const ALIAS = "gemini-3.8-flash-low";
 const TARGET = "gemini-3.8-flash-medium";
@@ -65,6 +66,11 @@ describe("effort alias catalog switches", () => {
   let server: Server | undefined;
 
   beforeEach(() => {
+    setAntigravityModelsForTest([
+      "gemini-3.8-flash-low",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-high",
+    ]);
     adminAuth.setPersistedAdminToken("fixture-admin-token");
     types.setEffortRoutingOverride({
       [ALIAS]: { defaultEffort: "medium", targets: { medium: TARGET } },

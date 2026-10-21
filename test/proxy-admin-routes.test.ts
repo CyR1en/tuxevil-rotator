@@ -7,6 +7,7 @@ import { setPersistedAdminToken } from "../src/admin-auth.js";
 import { startProxy } from "../src/proxy.js";
 import { stopNotificationPoller } from "../src/notification-poller.js";
 import { stopVersionChecker } from "../src/version-check.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 function makeRotator() {
   const state = {
@@ -117,7 +118,11 @@ describe("proxy admin routes", () => {
   });
 
   it("serves the admin /api/models catalog used by the Generate Virtual Key modal", async () => {
-    // Build a rotator that advertises the static catalog plus one Ollama
+    setAntigravityModelsForTest([
+      "gemini-3.1-pro-high",
+      "claude-sonnet-4-6",
+    ]);
+    // Build a rotator whose live Antigravity snapshot plus one Ollama
     // model and one Codex model so the test exercises the active-provider
     // branch of buildOpenAIModelCatalog.
     const rotator = {
@@ -151,10 +156,10 @@ describe("proxy admin routes", () => {
     assert.equal(body.ok, true);
     assert.equal(body.count, body.data.length);
 
-    // The static Google Antigravity catalog must be present.
+    // Models observed in the current Antigravity snapshot must be present.
     assert.ok(
       body.data.some((m) => m.owned_by === "tuxevil-rotator" && m.id === "gemini-3.1-pro-high"),
-      "missing static Gemini 3.1 Pro model",
+      "missing dynamically advertised Gemini model",
     );
     assert.ok(
       body.data.some((m) => m.owned_by === "tuxevil-rotator" && m.id === "claude-sonnet-4-6"),

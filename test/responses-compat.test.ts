@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach, beforeEach } from "node:test";
 import { PassThrough } from "node:stream";
 import {
 	handleOpenAIResponsesCancel,
@@ -12,6 +12,7 @@ import {
 } from "../src/compat.js";
 import { ANTIGRAVITY_ENDPOINTS, type AccountRuntime } from "../src/types.js";
 import type { AccountRotator } from "../src/rotator.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 type Capture = {
 	url: string;
@@ -31,6 +32,15 @@ const originalEndpoints = [...endpointOverrides];
 afterEach(() => {
 	endpointOverrides.splice(0, endpointOverrides.length, ...originalEndpoints);
 	resetResponsesStoreForTests();
+});
+
+beforeEach(() => {
+	setAntigravityModelsForTest([
+		"claude-sonnet-4-6",
+		"gemini-3-flash",
+		"gemini-3.7-flash-tiered",
+		"gemini-3.8-flash-high",
+	]);
 });
 
 async function listenServer(

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { transcribeAudioWithRotator } from "../src/audio-transcription.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 process.env.LOG_LEVEL = "silent";
 process.env.PI_ROTATOR_TELEMETRY = "off";
 
 test("0e11b325: transcription WAV sample rate matches the PCM MIME rate", async () => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   const originalFetch = globalThis.fetch;
   const upstreamBodies: Array<Record<string, any>> = [];
   const account = {

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 test("transcribes SSE events delimited by isolated carriage returns", async () => {
+  setAntigravityModelsForTest(["gemini-3.8-flash-low"]);
   const originalTelemetry = process.env.PI_ROTATOR_TELEMETRY;
   const originalDataDir = process.env.TUXEVIL_ROTATOR_DIR;
   process.env.PI_ROTATOR_TELEMETRY = "off";

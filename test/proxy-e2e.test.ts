@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   startProxy,
   withRotation,
@@ -20,9 +20,18 @@ import {
 } from "../src/rotator.js";
 import { fetchProviderQuota } from "../src/providers/google-antigravity/quota.js";
 import { dynamicCatalog } from "../src/providers/google-antigravity/dynamic-catalog.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 const endpointOverrides = ANTIGRAVITY_ENDPOINTS as unknown as string[];
 const originalEndpoints = [...endpointOverrides];
+
+beforeEach(() => {
+	setAntigravityModelsForTest([
+		"gemini-3.1-pro",
+		"gemini-3-flash",
+		"gemini-3.7-flash-tiered",
+	]);
+});
 
 afterEach(() => {
 	endpointOverrides.splice(0, endpointOverrides.length, ...originalEndpoints);

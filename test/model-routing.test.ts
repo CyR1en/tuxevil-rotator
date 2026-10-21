@@ -16,6 +16,7 @@ import {
 import { applyConfigDefaults } from "../src/config-defaults.js";
 import { validateConfig } from "../src/validators.js";
 import type { Config } from "../src/types.js";
+import { setAntigravityModelsForTest } from "./fixtures/antigravity-catalog.js";
 
 function source(
   config: Partial<Config> = {},
@@ -38,6 +39,7 @@ function source(
 
 describe("model routing", () => {
   it("sends a listed id to the provider that lists it", () => {
+    setAntigravityModelsForTest(["claude-sonnet-4-6"]);
     const s = source({}, { ollama: ["glm-5.1"] });
     assert.deepEqual(resolveModelRoute(s, "glm-5.1"), { kind: "provider", providerId: "ollama", modelId: "glm-5.1" });
     assert.equal(resolveModelRoute(s, "claude-sonnet-4-6").kind, "provider");
@@ -78,6 +80,7 @@ describe("model routing", () => {
 
   it("leaves unlisted ids to the caller unless their provider is off", () => {
     assert.deepEqual(resolveModelRoute(source(), "gemini-pro-agent"), { kind: "unlisted" });
+    setAntigravityModelsForTest(["gemini-pro-agent"]);
     assert.deepEqual(
       resolveModelRoute(source({ disabledProviders: ["google-antigravity"] }), "gemini-pro-agent"),
       { kind: "off", providerIds: ["google-antigravity"] },
@@ -85,6 +88,7 @@ describe("model routing", () => {
   });
 
   it("treats an alias as the model it stands for", () => {
+    setAntigravityModelsForTest(["gpt-oss-120b-medium"]);
     const s = source();
     assert.equal((resolveModelRoute(s, "gpt-oss-120b") as { providerId: string }).providerId, "google-antigravity");
     s.config = { ...s.config, ...setModelsTurnedOff(s.config, ["google-antigravity/gpt-oss-120b-medium"], true) };
@@ -98,12 +102,17 @@ describe("model routing", () => {
 });
 
 describe("request switch checks", () => {
-  it("honors explicit keys for ids no provider lists", () => {
+  it("honors explicit keys for dynamically discovered models", () => {
+    setAntigravityModelsForTest(["gemini-pro-agent"]);
     const s = source({ disabledModels: ["google-antigravity/gemini-pro-agent"] });
     assert.deepEqual(resolveModelRoute(s, "gemini-pro-agent"), { kind: "off", providerIds: ["google-antigravity"] });
   });
 
   it("checks the catalog id and the upstream alias of a request", () => {
+    setAntigravityModelsForTest([
+      "gemini-3.1-pro-high",
+      "gemini-3.8-flash-low",
+    ]);
     const s = source({ disabledModels: ["google-antigravity/gemini-3.1-pro-high", "google-antigravity/gemini-3.8-flash-low"] });
     // Effort routing resolved to a turned-off target; the upstream name is an alias.
     assert.equal(isRequestOff(s, { model: "gemini-pro-agent", catalogModel: "gemini-3.1-pro-high" }), true);
