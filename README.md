@@ -173,6 +173,8 @@ Existing `enc:v1` records remain decryptable during migration; newly written rec
 
 **Requirements:** Node.js 22+ for npm/source installs. Docker image uses Node 22.
 
+> **Non-technical? Don't follow the steps — paste a prompt instead.** Copy the ready-made install prompt from [`docs/agent-install-prompt.md`](docs/agent-install-prompt.md) (English and Spanish versions) into your AI agent — OpenCode, Codex, Claude Code, Cursor, Cline… — and it installs the rotator, walks you through the account logins, runs it as a background service, and wires your agent to it automatically.
+
 ### Option A: npm
 
 ```bash
@@ -233,6 +235,8 @@ tuxevil-rotator install-agent --target auto
 ```
 
 Use `--target all` or a comma-separated list (`opencode,hermes,pi,codex`) to choose clients. Add `--host <hostname> --user <ssh-user>` to configure them over SSH, or `--dry-run` to review the generated installer first. For OpenCode's live model catalog, use `tuxevil-rotator install-opencode`; see the [OpenCode integration guide](docs/integrations/opencode.md).
+
+> **Rather have your agent do all of this?** The [`agent-install-prompt`](docs/agent-install-prompt.md) is a copy-paste prompt (English/Spanish) that makes any coding agent perform the whole setup for a non-technical user: install, account logins with hand-holding, background service, agent wiring, and verification.
 
 | Agent | Guide |
 |-------|-------|
@@ -333,6 +337,7 @@ tuxevil-rotator keys generate --alias "cursor-agent" --models "gemini-3.6-flash-
 | Migration from pi-antigravity-rotator | [docs/migrating-from-pi-antigravity-rotator.md](docs/migrating-from-pi-antigravity-rotator.md) |
 | Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Telemetry | [docs/telemetry.md](docs/telemetry.md) |
+| One-Prompt Agent Install | [docs/agent-install-prompt.md](docs/agent-install-prompt.md) |
 | PostgreSQL Setup | [docs/integrations/setup-postgresql.md](docs/integrations/setup-postgresql.md) |
 
 ---
