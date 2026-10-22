@@ -2,6 +2,10 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
+## Installation / Setup Requests (not development)
+
+If the user asks you to **install, run, or wire up tuxevil-rotator on their machine** (as opposed to developing this repository), do NOT follow the contributor workflow below. Read [`docs/agent-install-prompt.md`](./docs/agent-install-prompt.md) and execute the install prompt in that file verbatim; it contains the authoritative step-by-step installer for non-technical users, including interactive account logins, service setup, and agent wiring.
+
 ## Quick Reference
 
 ```bash

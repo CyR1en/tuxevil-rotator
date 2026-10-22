@@ -7,6 +7,10 @@ If you are not technical, you do not need to follow any guide. You need exactly 
 
 The agent will install **tuxevil-rotator** on your machine, walk you through the account logins (they are yours, so the browser steps stay with you), run it as a local service, and connect your coding agent to it. After that, your agent stops running out of quota as fast: the rotator pools and rotates the free quotas of the accounts you add.
 
+## For the agent that arrived holding only the repo URL
+
+If the user simply said *"install https://github.com/tuxevil/tuxevil-rotator"* (or just *"install tuxevil-rotator"*) without pasting the full prompt below: this file **is** the instructions. Follow the copy-paste prompt in the next section on the user's behalf, keeping every rule inside it — especially the ones about asking the user before changing anything and requiring the user to perform interactive logins themselves.
+
 > **⚠️ First read:** rotating accounts through this proxy may violate a provider's Terms of Service. Prefer non-primary accounts and keep usage modest. The prompt instructs the agent to warn you about this too; see the [README warning](../README.md#readme).
 
 ## What you end up with
