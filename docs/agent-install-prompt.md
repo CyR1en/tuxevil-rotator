@@ -50,9 +50,12 @@ STEP 0 — ASK ME FIRST (one question at a time, before changing anything)
    Only use the providers I approve. Even ONE Google account is enough to start.
 
 STEP 1 — PREREQUISITES (no questions, just do it and tell me)
-- Check `node -v`. Node.js 22 or newer is required. If missing or older, install
-  Node 22 LTS the standard way for my OS (NodeSource on Debian/Ubuntu, Homebrew on
-  macOS, nvm otherwise). Never uninstall or replace an existing Node setup.
+- Check `node -v`. Require Node.js 22.23.4+ on 22.x, 24.22.1+ on 24.x, or
+  26.12.1+ to fix CVE-2026-111497 (Brotli decoder). If missing or affected, install
+  a patched supported release the standard way for my OS (NodeSource on
+  Debian/Ubuntu, Homebrew on macOS, nvm otherwise). Never uninstall or replace an
+  existing Node setup; use a separate runtime if needed. Restart any existing
+  rotator service using the patched runtime and verify the service's Node version.
 - If npm global installs hit permission errors, fix it the safe way (user-owned npm
   prefix or nvm), not by pushing sudo blindly.
 
@@ -200,10 +203,13 @@ PASO 0 — PREGÚNTAME PRIMERO (de a una pregunta por vez, antes de cambiar nada
    empezar.
 
 PASO 1 — PRERREQUISITOS (sin preguntas; hazlo y avísame)
-- Verifica `node -v`. Se requiere Node.js 22 o superior. Si falta o es más viejo,
-  instala Node 22 LTS de la forma estándar para mi sistema (NodeSource en
-  Debian/Ubuntu, Homebrew en macOS, nvm en otros). Nunca desinstales ni replaces
-  un Node existente.
+- Verifica `node -v`. Se requiere Node.js 22.23.4+ en 22.x, 24.22.1+ en 24.x o
+  26.12.1+ para corregir CVE-2026-111497 (decodificador Brotli). Si falta o está
+  afectado, instala una versión compatible con el parche de la forma estándar
+  para mi sistema (NodeSource en Debian/Ubuntu, Homebrew en macOS, nvm en otros).
+  Nunca desinstales ni reemplaces un Node existente; usa un runtime separado si
+  hace falta. Reinicia cualquier servicio del rotator con el runtime corregido y
+  verifica la versión de Node que usa el servicio.
 - Si npm da errores de permisos al instalar global, resuélvelo de forma segura
   (prefijo de npm del usuario o nvm), no uses sudo a ciegas.
 

@@ -1,5 +1,10 @@
 # Deployment
 
+Use Node.js 22.23.4+ on 22.x, 24.22.1+ on 24.x, or 26.12.1+. These releases fix
+[CVE-2026-111497](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)
+in the bundled Brotli decoder. Updating npm dependencies alone does not patch Node.js.
+Restart every rotator process with the patched runtime after upgrading.
+
 ## Option A: npm (Global Install)
 
 ```bash
@@ -41,7 +46,19 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`). The compose file:
 - Publishes the proxy on `127.0.0.1:51200` only (secure by default)
 - Runs as non-root `node` user (UID/GID 1000)
 
-To build locally from source instead, uncomment `build: .` in `docker-compose.yml`.
+To build locally from source instead, comment out `image:` and uncomment `build: .`
+in `docker-compose.yml`, then run `docker compose build --pull` and
+`docker compose up -d`. The Dockerfile pins Node.js 22.23.4.
+
+For a pre-built image, verify its Node.js release after pulling and recreating the
+container; a `latest` tag alone does not establish that it contains the fix:
+
+```bash
+docker compose exec tuxevil-rotator node --version
+```
+
+If it is below the fixed version for its release line, build from the patched
+Dockerfile instead.
 
 **Enable Virtual Keys and Spend Logging inside Docker:**
 
