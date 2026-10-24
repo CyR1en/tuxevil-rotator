@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [4.2.2] - 2026-10-24
+
+### Security
+
+- Require Node.js 22.23.4+ on 22.x, 24.22.1+ on 24.x, or 26.12.1+ to address the bundled Brotli decoder vulnerability [CVE-2026-111497](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases). Pin Docker and CI to Node.js 22.23.4 and document runtime upgrades and service restarts. Updating npm dependencies alone does not patch an existing Node.js process. ([PR #41](https://github.com/tuxevil/tuxevil-rotator/pull/41))
+- Update the direct Undici dependency to 7.30.1 for its upstream security fixes.
+- Replace the OpenCode discovery plugin's quadratic trailing-slash regular expression with a linear scan. Long slash sequences in configured base URLs can no longer block plugin startup through regular-expression backtracking (CodeQL alert #53). Add regression coverage for large matching and nonmatching inputs and URL normalization behavior.
+
+### Fixed
+
+- Discover Antigravity models from live account quota snapshots instead of advertising retired static model IDs. Preserve valid snapshots on malformed quota-only responses and keep request reservations scoped to the provider when model IDs overlap.
+- Update the OpenCode discovery plugin and installers to the OpenCode 2 plugin API and configuration format.
+
+### Documentation
+
+- Add English and Spanish agent installation prompts covering account logins, background services and agent configuration, and surface them in the README and repository agent instructions.
+
+### Contributors
+
+- Thanks to [@CyR1en](https://github.com/CyR1en) for the Node.js and Undici security updates and deployment guidance in [PR #41](https://github.com/tuxevil/tuxevil-rotator/pull/41).
+
 ## [4.2.1] - 2026-10-17
 
 ### Fixed

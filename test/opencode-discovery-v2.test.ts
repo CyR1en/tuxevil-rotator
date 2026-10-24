@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { spawnSync } from "node:child_process";
 import {
   normalizeProviderEntries,
   resolvePluginOptions,
@@ -56,6 +57,32 @@ describe("OpenCode V2 rotator discovery plugin", () => {
     process.env.TUXEVIL_ROTATOR_BASE_URL = "http://remote-rotator:51200/v1";
     const resolved = resolvePluginOptions({});
     assert.equal(resolved.baseURL, "http://remote-rotator:51200/v1");
+  });
+
+  it("removes only trailing slashes from baseURLs", () => {
+    for (const [baseURL, expected] of [
+      ["http://localhost:51200/v1///", "http://localhost:51200/v1"],
+      ["http://localhost:51200/a///b", "http://localhost:51200/a///b"],
+      ["http://localhost:51200/v1/\n", "http://localhost:51200/v1/\n"],
+      ["///", ""],
+    ]) {
+      assert.equal(resolvePluginOptions({ baseURL }).baseURL, expected);
+    }
+  });
+
+  it("normalizes long slash runs without blocking plugin startup", () => {
+    const pluginUrl = new URL("../plugins/opencode-discovery/index.mjs", import.meta.url).href;
+    // Isolate synchronous work: a test-runner timeout cannot interrupt a ReDoS.
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict";
+      const { resolvePluginOptions } = await import(${JSON.stringify(pluginUrl)});
+      const prefix = "http://localhost:51200/v1";
+      const slashes = "/".repeat(300_000);
+      const internal = prefix + slashes + "x";
+      assert.equal(resolvePluginOptions({ baseURL: internal }).baseURL, internal);
+      assert.equal(resolvePluginOptions({ baseURL: prefix + slashes }).baseURL, prefix);
+    `], { timeout: 5000, encoding: "utf8" });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   });
 
   it("discovers baseURL/id/name from V2 provider records", () => {

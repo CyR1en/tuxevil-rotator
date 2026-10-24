@@ -131,8 +131,13 @@ export function resolvePluginOptions(options = {}, providerEntries = []) {
     }
   }
 
+  // Scan backwards once so a long internal slash run cannot cause ReDoS.
+  const baseURLText = String(baseURL ?? DEFAULT_BASE_URL)
+  let end = baseURLText.length
+  while (end > 0 && baseURLText.charCodeAt(end - 1) === 47) end--
+
   return {
-    baseURL: String(baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    baseURL: baseURLText.slice(0, end),
     providerID: providerID || "antigravity",
     providerName: providerName || "Antigravity (rotator)",
     timeoutMs: Number(options.timeoutMs) || 3500,
