@@ -57,7 +57,7 @@ afterEach(() => {
 it("builds the modern quota User-Agent from the configured Antigravity version", () => {
 	assert.equal(
 		DEFAULT_ANTIGRAVITY_USER_AGENT,
-		`antigravity/ide/${ANTIGRAVITY_VERSION} (aidev_client; os_type=darwin; arch=arm64)`,
+		`antigravity/hub/${ANTIGRAVITY_VERSION} (aidev_client; os_type=darwin; arch=arm64)`,
 	);
 });
 

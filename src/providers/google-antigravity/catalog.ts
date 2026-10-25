@@ -39,6 +39,11 @@ export const ANTIGRAVITY_CONTEXT_WINDOWS: Record<string, number> = {
   // OpenAI gpt-oss-120b — 131,072 per platform.openai.com/docs/models/gpt-oss-120b.
   "gpt-oss-120b": 131_072,
   "gpt-oss-120b-medium": 131_072,
+  // Google Gemini 4 Argon family — 1M context window.
+  "gemini-4-argon": 1_000_000,
+  "gemini-4-argon-high": 1_000_000,
+  "gemini-4-argon-medium": 1_000_000,
+  "gemini-4-argon-low": 1_000_000,
   // Google Gemini 3.x — 1M context window per deepmind.google/models/gemini/*.
   "gemini-3.8-flash-high": 1_000_000,
   "gemini-3.8-flash-medium": 1_000_000,
@@ -76,8 +81,8 @@ const FALLBACK_CONTEXT_WINDOW = 128_000;
  *
  * Lookup order:
  *   1. Operator exact/substring override.
- *   2. Exact id match in static table (lowercased).
- *   3. Dynamic catalog entry from live Antigravity endpoint.
+ *   2. Dynamic catalog entry from an account snapshot.
+ *   3. Exact id match in static table (lowercased).
  *   4. Substring match across the table (longest key wins via the order here).
  *   5. Family defaults: claude -> 1M, gemini -> 1M, gpt-oss -> 131_072.
  *   6. Defensive fallback: 128_000.
@@ -90,10 +95,10 @@ export function getAntigravityContextWindow(model: string): number {
   if (typeof overrideCtx === "number" && Number.isFinite(overrideCtx) && overrideCtx > 0) {
     return overrideCtx;
   }
-  const exact = ANTIGRAVITY_CONTEXT_WINDOWS[lower];
-  if (typeof exact === "number") return exact;
   const dynamicCtx = dynamicCatalog.getContextWindow(lower);
   if (typeof dynamicCtx === "number") return dynamicCtx;
+  const exact = ANTIGRAVITY_CONTEXT_WINDOWS[lower];
+  if (typeof exact === "number") return exact;
   // Substring fallback: pick the longest registered key that appears in lower.
   let best: { key: string; value: number } | null = null;
   for (const [key, value] of Object.entries(ANTIGRAVITY_CONTEXT_WINDOWS)) {
@@ -155,14 +160,17 @@ export function getEffectiveAntigravityModels(): CompatModelEntry[] {
     const backingModel = byId.get(target);
     if (backingModel) result.push(toCompatModel(backingModel, "whisper-1", false));
   }
+
   return result;
 }
 
 /** Whether an id or configured operator alias resolves to a current snapshot model. */
 export function isDynamicallyAvailableAntigravityModel(model: string): boolean {
   const normalize = (value: string) => value.trim().replace(/^models\//i, "").toLowerCase();
+  const normalized = normalize(model);
+  const aliased = normalize(applyModelAlias(model));
   return Boolean(
-    dynamicCatalog.getModel(normalize(model)) ??
-      dynamicCatalog.getModel(normalize(applyModelAlias(model))),
+    dynamicCatalog.getModel(normalized) ??
+      dynamicCatalog.getModel(aliased),
   );
 }

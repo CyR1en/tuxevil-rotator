@@ -432,6 +432,17 @@ export function resolveDisplayModelKey(
     if (lower.includes("-high")) return "gemini-3.1-pro-high";
     return "gemini-3.1-pro"; // unspecified variant
   }
+  // Gemini 4 Argon
+  if (
+    lower.includes("gemini") &&
+    lower.includes("4") &&
+    lower.includes("argon")
+  ) {
+    if (lower.includes("-low")) return "gemini-4-argon-low";
+    if (lower.includes("-medium")) return "gemini-4-argon-medium";
+    if (lower.includes("-high")) return "gemini-4-argon-high";
+    return "gemini-4-argon";
+  }
   // Gemini 3.8 Flash — Antigravity exposes separate reasoning-level ids.
   if (
     lower.includes("gemini") &&
@@ -555,7 +566,18 @@ export interface PersistedDynamicModelOwnership {
   >;
 }
 
+export interface PersistedDynamicModelSnapshots {
+  version: 1;
+  accounts: Record<string, {
+    credentialGenerationFingerprint: string;
+    capturedAt: number;
+    models: import("./providers/google-antigravity/dynamic-catalog.js").DynamicModelEntry[];
+    defaultAgentModelId?: string;
+  }>;
+}
+
 export interface PersistedState {
+  dynamicModelSnapshots?: PersistedDynamicModelSnapshots;
   // Historical dynamic model IDs mapped to their shared quota pools.
   dynamicModelQuotaPools?: Record<string, string>;
   // Exact account ownership for dynamically discovered model IDs.
@@ -908,6 +930,30 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachingPer1M: 0.075,
     cachingStoragePer1MPerHour: 0.5,
   },
+  "gemini-4-argon": {
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
+  },
+  "gemini-4-argon-low": {
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
+  },
+  "gemini-4-argon-medium": {
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
+  },
+  "gemini-4-argon-high": {
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
+  },
   "gpt-oss-120b-medium": { inputPer1M: 2.0, outputPer1M: 10.0 },
 
   // OpenAI Codex API-equivalent standard rates, checked against
@@ -1111,9 +1157,10 @@ export const TAGS_CACHE_TTL_MS = 5 * 60 * 1000;
 export const ANTIGRAVITY_VERSION =
 	rotatorEnv("ANTIGRAVITY_VERSION") ||
 	process.env.PI_AI_ANTIGRAVITY_VERSION ||
-	"2.11.0";
+	"2.26.0";
 export const DEFAULT_ANTIGRAVITY_USER_AGENT =
-  `antigravity/ide/${ANTIGRAVITY_VERSION} (aidev_client; os_type=darwin; arch=arm64)`;
+  rotatorEnv("ANTIGRAVITY_USER_AGENT") ||
+  `antigravity/hub/${ANTIGRAVITY_VERSION} (aidev_client; os_type=darwin; arch=arm64)`;
 export const QUOTA_USER_AGENT =
 	rotatorEnv("QUOTA_USER_AGENT") ||
 	DEFAULT_ANTIGRAVITY_USER_AGENT;

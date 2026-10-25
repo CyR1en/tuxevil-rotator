@@ -649,6 +649,12 @@ export class AccountRotator {
               getCredentialGenerationFingerprint(account, DEFAULT_PROVIDER),
           })),
       );
+      dynamicCatalog.restorePersistedSnapshots(state.dynamicModelSnapshots,
+        this.accounts.filter((account) => hasCredential(account.config, DEFAULT_PROVIDER)).map((account) => ({
+          id: getAccountIdentity(account),
+          credentialGenerationFingerprint: getCredentialGenerationFingerprint(account, DEFAULT_PROVIDER),
+        })),
+      );
       // Load per-model account assignments
       if (state.modelAccounts) {
         for (const [model, idx] of Object.entries(state.modelAccounts)) {
@@ -837,6 +843,13 @@ export class AccountRotator {
 
     const disabledProvidersByAccount: Record<string, string[]> = {};
     const state: PersistedState = {
+      dynamicModelSnapshots: dynamicCatalog.getPersistedSnapshots(
+        this.accounts.filter((account) => !account.disabled && !account.flagged &&
+          !account.invalidProviders?.[DEFAULT_PROVIDER] && hasCredential(account.config, DEFAULT_PROVIDER)).map((account) => ({
+          id: getAccountIdentity(account),
+          credentialGenerationFingerprint: getCredentialGenerationFingerprint(account, DEFAULT_PROVIDER),
+        })),
+      ),
       dynamicModelQuotaPools: dynamicCatalog.getDiscoveredQuotaPools(),
       dynamicModelOwnership: dynamicCatalog.getPersistedModelOwnership(
         this.accounts
@@ -1018,6 +1031,7 @@ export class AccountRotator {
 
   private async pollAccountQuotaOnce(account: AccountRuntime): Promise<boolean> {
     let quotaPublished = false;
+    const snapshotRevision = dynamicCatalog.snapshotRevision;
     try {
       const quotaCtx: QuotaFetchContext = {
         log: (message) => this.log(message),
@@ -1075,10 +1089,10 @@ export class AccountRotator {
         cooldownChanged = true;
       }
     }
-    if (cooldownChanged) {
+    if (cooldownChanged || snapshotRevision !== dynamicCatalog.snapshotRevision) {
       this.scheduleStateSave();
-      this.requestWaiterDrain();
     }
+    if (cooldownChanged) this.requestWaiterDrain();
 
     // Consolidated RAW POLL across all providers on this account:
     // google first (Antigravity OAuth pools), then ollama (usage pools).

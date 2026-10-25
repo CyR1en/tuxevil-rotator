@@ -42,6 +42,7 @@ import {
   GOOGLE_BENCHMARK_CONSTANTS,
 } from "./providers/google-antigravity/forward.js";
 import { isDynamicallyAvailableAntigravityModel } from "./providers/google-antigravity/catalog.js";
+import { dynamicCatalog } from "./providers/google-antigravity/dynamic-catalog.js";
 export { forwardRequest, SseEventAccumulator, extractUsageFromSseEvent };
 import {
   serveStatusApi,
@@ -1273,7 +1274,8 @@ export async function withRotation<T>(
     resolveQuotaModelKey(applyModelAlias(model));
   if (
     (providerId === DEFAULT_PROVIDER ||
-      (!providerId && (modelQuotaFamily === "claude" || modelQuotaFamily === "gemini"))) &&
+      (!providerId && (modelQuotaFamily === "claude" || modelQuotaFamily === "gemini" ||
+        dynamicCatalog.wasDiscovered(model) || dynamicCatalog.wasDiscovered(applyModelAlias(model))))) &&
     !isDynamicallyAvailableAntigravityModel(model)
   ) {
     return {

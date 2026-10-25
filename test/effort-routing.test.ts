@@ -1,5 +1,16 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const testDir = mkdtempSync(join(tmpdir(), "tuxevil-effort-routing-"));
+process.env.TUXEVIL_ROTATOR_DIR = testDir;
+process.env.PI_ROTATOR_DIR = testDir;
+delete process.env.DATABASE_URL;
+delete process.env.TUXEVIL_ROTATOR_DATABASE_URL;
+delete process.env.PI_ROTATOR_DATABASE_URL;
+
 import {
 	setEffortRoutingOverride,
 	setModelAliasesOverride,

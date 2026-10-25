@@ -167,7 +167,7 @@ describe("model discovery", () => {
 		}
 	});
 
-	it("does not advertise retired gemini-3.5-flash ids", () => {
+	it("advertises exact gemini-3.5 ids only when discovered", () => {
 		dynamicCatalog.updateFromEndpointResponse({
 			models: {
 				"Gemini-3.5-Flash-High": { quotaInfo: { remainingFraction: 1 } },
@@ -177,13 +177,8 @@ describe("model discovery", () => {
 			const payload = captureJson(serveOpenAIModels) as {
 				data: Array<{ id: string }>;
 			};
-			assert.ok(
-				!payload.data.some((model) =>
-					model.id.toLowerCase().startsWith("gemini-3.5-") &&
-					model.id.toLowerCase() !== "gemini-3.5-flash-lite",
-				),
-			);
-			assert.deepEqual(dynamicCatalog.getAllModels(), []);
+			assert.ok(payload.data.some((model) => model.id === "Gemini-3.5-Flash-High"));
+			assert.equal(dynamicCatalog.getAllModels().length, 1);
 		} finally {
 			dynamicCatalog.reset();
 		}
