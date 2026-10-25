@@ -859,7 +859,8 @@ export interface ModelPricing {
   cachingStoragePer1MPerHour?: number;
 }
 
-// Pricing per 1M tokens (USD) — what these would cost on paid APIs
+// Pricing per 1M tokens (USD) — what these would cost on paid APIs.
+// Source audit and estimation limits: docs/model-pricing.md (2026-10-25).
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   "claude-opus-4-6-thinking": { inputPer1M: 5.0, outputPer1M: 25.0 },
   "claude-sonnet-4-6": { inputPer1M: 3.0, outputPer1M: 15.0 },
@@ -867,35 +868,37 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "gemini-3.1-pro-low": { inputPer1M: 2.0, outputPer1M: 12.0 },
   "gemini-3.1-pro-high": { inputPer1M: 2.0, outputPer1M: 12.0 },
   "gemini-3-flash": { inputPer1M: 0.5, outputPer1M: 3.0 },
+  // Standard introductory rates verified 2026-10-25; double on 2027-01-01.
+  // https://ai.google.dev/gemini-api/docs/pricing
   "gemini-3.6-flash": {
-    inputPer1M: 1.5,
-    outputPer1M: 7.5,
-    cachingPer1M: 0.15,
-    cachingStoragePer1MPerHour: 1.0,
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
   },
   "gemini-3.6-flash-high": {
-    inputPer1M: 1.5,
-    outputPer1M: 7.5,
-    cachingPer1M: 0.15,
-    cachingStoragePer1MPerHour: 1.0,
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
   },
   "gemini-3.6-flash-medium": {
-    inputPer1M: 1.5,
-    outputPer1M: 7.5,
-    cachingPer1M: 0.15,
-    cachingStoragePer1MPerHour: 1.0,
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
   },
   "gemini-3.6-flash-low": {
-    inputPer1M: 1.5,
-    outputPer1M: 7.5,
-    cachingPer1M: 0.15,
-    cachingStoragePer1MPerHour: 1.0,
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
   },
   "gemini-3.6-flash-tiered": {
-    inputPer1M: 1.5,
-    outputPer1M: 7.5,
-    cachingPer1M: 0.15,
-    cachingStoragePer1MPerHour: 1.0,
+    inputPer1M: 0.75,
+    outputPer1M: 3.75,
+    cachingPer1M: 0.075,
+    cachingStoragePer1MPerHour: 0.5,
   },
   // Gemini 3.7 Flash tiered — public Gemini API equivalent-value pricing,
   // verified on the official Gemini API / Google Cloud pricing pages
@@ -910,7 +913,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachingStoragePer1MPerHour: 0.5,
   },
   // Gemini 3.8 Flash — introductory public Gemini API pricing verified
-  // 2026-09-02. These rates double on 2027-01-01. Antigravity exposes
+  // 2026-10-25. These rates double on 2027-01-01. Antigravity exposes
   // separate low/medium/high model ids.
   "gemini-3.8-flash-low": {
     inputPer1M: 0.75,
@@ -930,34 +933,32 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachingPer1M: 0.075,
     cachingStoragePer1MPerHour: 0.5,
   },
+  // Standard rates through 2026-11-30; then 4/20/0.2. Implicit cache only.
+  // https://ai.google.dev/gemini-api/docs/pricing (verified 2026-10-25).
   "gemini-4-argon": {
-    inputPer1M: 0.75,
-    outputPer1M: 3.75,
-    cachingPer1M: 0.075,
-    cachingStoragePer1MPerHour: 0.5,
+    inputPer1M: 2.0,
+    outputPer1M: 10.0,
+    cachingPer1M: 0.1,
   },
   "gemini-4-argon-low": {
-    inputPer1M: 0.75,
-    outputPer1M: 3.75,
-    cachingPer1M: 0.075,
-    cachingStoragePer1MPerHour: 0.5,
+    inputPer1M: 2.0,
+    outputPer1M: 10.0,
+    cachingPer1M: 0.1,
   },
   "gemini-4-argon-medium": {
-    inputPer1M: 0.75,
-    outputPer1M: 3.75,
-    cachingPer1M: 0.075,
-    cachingStoragePer1MPerHour: 0.5,
+    inputPer1M: 2.0,
+    outputPer1M: 10.0,
+    cachingPer1M: 0.1,
   },
   "gemini-4-argon-high": {
-    inputPer1M: 0.75,
-    outputPer1M: 3.75,
-    cachingPer1M: 0.075,
-    cachingStoragePer1MPerHour: 0.5,
+    inputPer1M: 2.0,
+    outputPer1M: 10.0,
+    cachingPer1M: 0.1,
   },
   "gpt-oss-120b-medium": { inputPer1M: 2.0, outputPer1M: 10.0 },
 
   // OpenAI Codex API-equivalent standard rates, checked against
-  // https://developers.openai.com/api/docs/pricing on 2026-09-22.
+  // https://developers.openai.com/api/docs/pricing on 2026-10-25.
   // Spend logs use aggregate input/output tokens;
   // cache rates are metadata and are not applied separately.
   "gpt-6-astra": {
@@ -975,10 +976,11 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPer1M: 0.5,
     cachingPer1M: 0.01,
   },
+  // Promotional pricing available at least through 2026-11-21.
   "gpt-5.6-sol": {
-    inputPer1M: 5.0,
-    outputPer1M: 30.0,
-    cachingPer1M: 0.50,
+    inputPer1M: 4.0,
+    outputPer1M: 20.0,
+    cachingPer1M: 0.40,
   },
   "gpt-5.6-terra": {
     inputPer1M: 2.0,
@@ -991,7 +993,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachingPer1M: 0.02,
   },
 
-  // Ollama Cloud standard USD/1M rates, verified 2026-10-11:
+  // Ollama Cloud standard USD/1M rates, verified 2026-10-25:
   // https://ollama.com/pricing. Aggregates do not track cache hits or off-peak
   // billing, so savings represent standard list-price value, not a net saving.
   "gpt-oss:20b": { inputPer1M: 0.07, outputPer1M: 0.30, cachingPer1M: 0.035 },
