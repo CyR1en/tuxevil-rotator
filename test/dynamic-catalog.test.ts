@@ -515,4 +515,123 @@ describe("DynamicModelRegistry", () => {
     assert.equal(applyModelAlias("gemini-3.8-flash-tiered"), "gemini-3.8-flash-tiered");
     assert.equal(applyModelAlias("gemini-nonexistent-model"), "gemini-nonexistent-model");
   });
+
+  it("requires an advertised Argon variant without inventing its base", () => {
+    assert.equal(isDynamicallyAvailableAntigravityModel("gemini-4-argon"), false);
+    assert.equal(dynamicCatalog.wasDiscovered("gemini-4-argon"), false);
+    dynamicCatalog.updateFromEndpointResponse({ models: { "gemini-4-argon-high": {}, "gemini-3.5-pro": {} } });
+    assert.equal(isDynamicallyAvailableAntigravityModel("gemini-4-argon-high"), true);
+    assert.equal(isDynamicallyAvailableAntigravityModel("gemini-4-argon"), false);
+    assert.deepEqual(getEffectiveAntigravityModels().map((m) => m.id), ["gemini-4-argon-high", "gemini-3.5-pro"]);
+  });
+
+  it("round trips full account snapshots and withdraws availability without erasing history", () => {
+    const accounts = [{ id: "a", credentialGenerationFingerprint: "fingerprint" }];
+    dynamicCatalog.updateFromEndpointResponse({ defaultAgentModelId: "future-preview", models: {
+      "future-preview": { maxTokens: 123456, maxOutputTokens: 1000, thinkingBudget: -1, supportsThinking: true },
+    } }, "a");
+    const before = JSON.parse(JSON.stringify(dynamicCatalog.getAllModels()));
+    const saved = JSON.parse(JSON.stringify(dynamicCatalog.getPersistedSnapshots(accounts)));
+    dynamicCatalog.reset();
+    dynamicCatalog.restorePersistedSnapshots(saved, accounts);
+    assert.deepEqual(dynamicCatalog.getAllModels(), before);
+    assert.equal(dynamicCatalog.hasModelForAccount("a", "future-preview"), true);
+    assert.equal(dynamicCatalog.getDefaultAgentModelId(), "future-preview");
+    dynamicCatalog.updateFromEndpointResponse({ models: null }, "a");
+    assert.deepEqual(dynamicCatalog.getAllModels(), before);
+    dynamicCatalog.updateFromEndpointResponse({ models: {} }, "a");
+    assert.equal(isDynamicallyAvailableAntigravityModel("future-preview"), false);
+    assert.equal(dynamicCatalog.wasDiscovered("future-preview"), true);
+    assert.deepEqual(dynamicCatalog.getPersistedSnapshots(accounts).accounts.a.models, []);
+  });
+
+  it("normalizes restored IDs and drops unknown properties", () => {
+    const accounts = [{ id: "a", credentialGenerationFingerprint: "fingerprint" }];
+    dynamicCatalog.updateFromEndpointResponse({ models: { "future-high": {} } }, "a");
+    const saved = dynamicCatalog.getPersistedSnapshots(accounts);
+    Object.assign(saved.accounts.a.models[0], { id: " Future-High ", injected: "discard" });
+    dynamicCatalog.reset();
+    dynamicCatalog.restorePersistedSnapshots(saved, accounts);
+    assert.equal(dynamicCatalog.getModel("future-high")?.id, "Future-High");
+    assert.equal(Object.hasOwn(dynamicCatalog.getModel("future-high")!, "injected"), false);
+    assert.equal(dynamicCatalog.hasModelForAccount("a", "future-high"), true);
+  });
+
+  it("rejects incompatible, corrupt and obsolete snapshots", () => {
+    const accounts = [{ id: "a", credentialGenerationFingerprint: "fingerprint" }];
+    dynamicCatalog.updateFromEndpointResponse({ models: { "future-high": {} } }, "a");
+    const saved = dynamicCatalog.getPersistedSnapshots(accounts);
+    for (const mutate of [
+      (v: typeof saved) => { Object.assign(v, { version: 2 }); },
+      (v: typeof saved) => { v.accounts.a.credentialGenerationFingerprint = "changed"; },
+      (v: typeof saved) => { v.accounts.a.capturedAt = -1; },
+      (v: typeof saved) => { v.accounts.a.models[0].ctx = Infinity; },
+      (v: typeof saved) => { v.accounts.a.models[0].thinkingBudget = -2; },
+      (v: typeof saved) => { v.accounts.a.models[0].id = "../unsafe"; },
+      (v: typeof saved) => { Object.assign(v.accounts.a.models[0], { tools: "yes" }); },
+    ]) {
+      const corrupt = structuredClone(saved);
+      mutate(corrupt);
+      dynamicCatalog.reset();
+      dynamicCatalog.restorePersistedSnapshots(corrupt, accounts);
+      assert.deepEqual(dynamicCatalog.getAllModels(), []);
+    }
+    dynamicCatalog.restorePersistedSnapshots(saved, []);
+    assert.deepEqual(dynamicCatalog.getAllModels(), []);
+    dynamicCatalog.restorePersistedSnapshots(saved, accounts);
+    dynamicCatalog.retainAccounts([{ id: "a", generation: "old" }]);
+    const epoch = dynamicCatalog.captureAccountEpoch("a", "old");
+    dynamicCatalog.retainAccounts([{ id: "a", generation: "new" }]);
+    dynamicCatalog.updateFromEndpointResponse({ models: { "late-model": {} } }, "a", "old", epoch ?? undefined);
+    assert.deepEqual(dynamicCatalog.getAllModels(), []);
+  });
+
+  it("rejects corrupt account snapshots atomically while retaining valid accounts and history", () => {
+    const accounts = ["a", "b"].map((id) => ({ id, credentialGenerationFingerprint: id }));
+    dynamicCatalog.updateFromEndpointResponse({ models: { "previous-high": {} } }, "a");
+    dynamicCatalog.updateFromEndpointResponse({ models: { "other-high": {} } }, "b");
+    const previous = dynamicCatalog.getPersistedSnapshots(accounts);
+    dynamicCatalog.updateFromEndpointResponse({ models: { "first-high": {}, "second-high": {} } }, "a");
+    const next = dynamicCatalog.getPersistedSnapshots(accounts);
+    const mutations: Array<[string, unknown]> = [
+      ...[["gemini"], ["claude"], {}, null, 1].map((value): [string, unknown] => ["quotaPool", value]),
+      ...[0, -1, Infinity, NaN, null].map((value): [string, unknown] => ["maxOutputTokens", value]),
+      ...[-1, Infinity, NaN, null].map((value): [string, unknown] => ["minThinkingBudget", value]),
+      ...["multimodal", "tools", "isThinking", "isTiered"].map((key): [string, unknown] => [key, "true"]),
+      ...["gemini", "claude", "chat_bad", "tab_bad", "__proto__", "constructor", "prototype"].map((value): [string, unknown] => ["id", value]),
+    ];
+    for (const [key, value] of mutations) {
+      for (const jsonRoundTrip of [false, true]) {
+        dynamicCatalog.reset();
+        dynamicCatalog.restorePersistedSnapshots(previous, accounts);
+        const corrupt = structuredClone(next);
+        Object.assign(corrupt.accounts.a.models[1], { [key]: value });
+        dynamicCatalog.restorePersistedSnapshots(jsonRoundTrip ? JSON.parse(JSON.stringify(corrupt)) : corrupt, accounts);
+        assert.equal(dynamicCatalog.hasModelForAccount("a", "previous-high"), true, key);
+        assert.equal(dynamicCatalog.getModel("first-high"), undefined, key);
+        assert.equal(dynamicCatalog.hasModelForAccount("b", "other-high"), true, key);
+        assert.ok(["gemini", "claude"].includes(dynamicCatalog.resolveQuotaPool("previous-high")!));
+      }
+    }
+    for (const value of [null, 1, "../unsafe", "__proto__"]) {
+      dynamicCatalog.reset();
+      dynamicCatalog.restorePersistedSnapshots(previous, accounts);
+      const corrupt = structuredClone(next);
+      Object.assign(corrupt.accounts.a, { defaultAgentModelId: value });
+      dynamicCatalog.restorePersistedSnapshots(corrupt, accounts);
+      assert.equal(dynamicCatalog.hasModelForAccount("a", "previous-high"), true);
+      assert.equal(dynamicCatalog.getModel("first-high"), undefined);
+    }
+  });
+
+  it("prefers dynamic context over an exact static entry and respects overrides", () => {
+    dynamicCatalog.updateFromEndpointResponse({ models: { "gemini-4-argon-high": { maxTokens: 222222 } } });
+    assert.equal(getAntigravityContextWindow("gemini-4-argon-high"), 222222);
+    setModelSpecsOverride({ "gemini-4-argon-high": { contextWindow: 333333 } });
+    try {
+      assert.equal(getAntigravityContextWindow("gemini-4-argon-high"), 333333);
+    } finally {
+      setModelSpecsOverride({});
+    }
+  });
 });

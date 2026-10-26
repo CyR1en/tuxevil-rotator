@@ -537,7 +537,7 @@ describe("v2 routing and status", () => {
       assert.equal(drains, 1);
 
       await rotator.pollAccountQuota(account);
-      assert.equal(saves, 1, "an unchanged reset must not schedule another save");
+      assert.equal(saves, 2, "a successful snapshot persists its refreshed capture time");
       assert.equal(drains, 1, "an unchanged reset must not drain waiters again");
     } finally {
       globalThis.fetch = originalFetch;

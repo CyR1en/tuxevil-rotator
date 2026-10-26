@@ -8,6 +8,7 @@ import {
   QUOTA_MODEL_KEYS,
   type GoogleQuotaResponse,
   type PersistedDynamicModelOwnership,
+  type PersistedDynamicModelSnapshots,
 } from "../../types.js";
 
 export interface DynamicModelEntry {
@@ -60,8 +61,7 @@ function isDiscoverableModelId(value: string): boolean {
   return isSafeModelId(id) &&
     !RESERVED_QUOTA_MODEL_IDS.has(lower) &&
     !lower.startsWith("chat_") &&
-    !lower.startsWith("tab_") &&
-    (!lower.startsWith("gemini-3.5-") || lower === "gemini-3.5-flash-lite");
+    !lower.startsWith("tab_");
 }
 
 /** Validate and sanitize the untrusted runtime catalog response. */
@@ -213,6 +213,7 @@ function familyDefaults(
 export class DynamicModelRegistry {
   private static instance: DynamicModelRegistry | null = null;
   private accountModels = new Map<string, Map<string, DynamicModelEntry>>();
+  private snapshotTimes = new Map<string, number>();
   private defaultAgentModelIds = new Map<string, string>();
   private discoveredModels = new Map<
     string,
@@ -225,6 +226,7 @@ export class DynamicModelRegistry {
     ActiveAccountGeneration
   > | null = null;
   private nextAccountEpoch = 0;
+  snapshotRevision = 0;
 
   static getInstance(): DynamicModelRegistry {
     DynamicModelRegistry.instance ??= new DynamicModelRegistry();
@@ -234,6 +236,7 @@ export class DynamicModelRegistry {
   /** Reset dynamic account state (primarily for tests). */
   reset(): void {
     this.accountModels.clear();
+    this.snapshotTimes.clear();
     this.defaultAgentModelIds.clear();
     this.discoveredModels.clear();
     this.accountModelOwnership.clear();
@@ -377,6 +380,8 @@ export class DynamicModelRegistry {
       this.defaultAgentModelIds.delete(key);
     }
 
+    this.snapshotRevision++;
+    this.snapshotTimes.set(key, Date.now());
     this.accountModels.set(key, next);
     this.accountModelOwnership.set(key, new Set(next.keys()));
     return newModelsCount;
@@ -407,6 +412,7 @@ export class DynamicModelRegistry {
         (previousGeneration !== undefined && previousGeneration !== nextGeneration)
       ) {
         this.accountModels.delete(key);
+        this.snapshotTimes.delete(key);
       }
     }
     for (const key of this.accountModelOwnership.keys()) {
@@ -484,7 +490,8 @@ export class DynamicModelRegistry {
   }
 
   wasDiscovered(id: string): boolean {
-    return this.discoveredModels.has(id.trim().toLowerCase());
+    const lower = id.trim().toLowerCase();
+    return this.discoveredModels.has(lower);
   }
 
   getObservedModelId(id: string): string | undefined {
@@ -498,6 +505,75 @@ export class DynamicModelRegistry {
       pools[id] = quotaPool;
     }
     return pools;
+  }
+
+  getPersistedSnapshots(accounts: Iterable<PersistedOwnershipAccount>): PersistedDynamicModelSnapshots {
+    const snapshots: PersistedDynamicModelSnapshots = { version: 1, accounts: Object.create(null) };
+    for (const account of accounts) {
+      const id = accountKey(account.id);
+      const models = this.accountModels.get(id);
+      if (!models) continue;
+      snapshots.accounts[id] = {
+        credentialGenerationFingerprint: account.credentialGenerationFingerprint,
+        capturedAt: this.snapshotTimes.get(id)!,
+        models: Array.from(models.values(), (model) => ({ ...model })),
+        defaultAgentModelId: this.defaultAgentModelIds.get(id),
+      };
+    }
+    return snapshots;
+  }
+
+  restorePersistedSnapshots(value: unknown, accounts: Iterable<PersistedOwnershipAccount>): void {
+    if (!isRecord(value) || value.version !== 1 || !isRecord(value.accounts)) return;
+    for (const account of accounts) {
+      const id = accountKey(account.id);
+      const snapshot = value.accounts[id];
+      if (!isRecord(snapshot) ||
+        snapshot.credentialGenerationFingerprint !== account.credentialGenerationFingerprint ||
+        typeof snapshot.capturedAt !== "number" || !Number.isFinite(snapshot.capturedAt) ||
+        snapshot.capturedAt <= 0 || !Array.isArray(snapshot.models)) continue;
+      const models = new Map<string, DynamicModelEntry>();
+      let valid = true;
+      for (const raw of snapshot.models) {
+        if (!isRecord(raw) || typeof raw.id !== "string" || !isDiscoverableModelId(raw.id) ||
+          typeof raw.family !== "string" || !isSafeModelId(raw.family) ||
+          typeof raw.quotaPool !== "string" || !["gemini", "claude"].includes(raw.quotaPool) ||
+          !["ctx", "maxOutputTokens"].every((key) => typeof raw[key] === "number" && Number.isFinite(raw[key]) && raw[key] > 0) ||
+          typeof raw.thinkingBudget !== "number" || !Number.isFinite(raw.thinkingBudget) || raw.thinkingBudget < -1 ||
+          (raw.thinkingBudget < 0 && raw.thinkingBudget !== -1) ||
+          (raw.minThinkingBudget !== undefined && (typeof raw.minThinkingBudget !== "number" || !Number.isFinite(raw.minThinkingBudget) || raw.minThinkingBudget < 0)) ||
+          !["multimodal", "tools", "isThinking", "isTiered"].every((key) => typeof raw[key] === "boolean") ||
+          (raw.displayName !== undefined && typeof raw.displayName !== "string")) {
+          valid = false;
+          break;
+        }
+        models.set(raw.id.trim().toLowerCase(), {
+          id: raw.id.trim(),
+          family: raw.family as string,
+          quotaPool: raw.quotaPool as string,
+          ctx: raw.ctx as number,
+          maxOutputTokens: raw.maxOutputTokens as number,
+          thinkingBudget: raw.thinkingBudget as number,
+          ...(raw.minThinkingBudget !== undefined ? { minThinkingBudget: raw.minThinkingBudget as number } : {}),
+          multimodal: raw.multimodal as boolean,
+          tools: raw.tools as boolean,
+          isThinking: raw.isThinking as boolean,
+          isTiered: raw.isTiered as boolean,
+          ...(raw.displayName !== undefined ? { displayName: raw.displayName as string } : {}),
+        });
+      }
+      const defaultId = snapshot.defaultAgentModelId;
+      if (!valid || (defaultId !== undefined && (typeof defaultId !== "string" || !isSafeModelId(defaultId)))) continue;
+      this.accountModels.set(id, models);
+      this.snapshotTimes.set(id, snapshot.capturedAt);
+      this.accountModelOwnership.set(id, new Set(models.keys()));
+      this.defaultAgentModelIds.delete(id);
+      if (typeof defaultId === "string") this.defaultAgentModelIds.set(id, defaultId);
+      for (const [key, model] of models) {
+        this.discoveredModels.set(key, { id: model.id, quotaPool: model.quotaPool });
+        this.ownershipScopedModels.add(key);
+      }
+    }
   }
 
   getPersistedModelOwnership(

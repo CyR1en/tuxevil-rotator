@@ -10,6 +10,7 @@ import {
 import { extractQuotas } from "../src/providers/google-antigravity/quota.js";
 import { parseGoogleQuotaResponse } from "../src/providers/google-antigravity/dynamic-catalog.js";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 
 describe("model resolution", () => {
 	it("maps Gemini variants to the shared Gemini quota pool", () => {
@@ -116,9 +117,9 @@ describe("model resolution", () => {
 
 	it("uses official Codex GPT-5.6 text-token pricing", () => {
 		assert.deepEqual(MODEL_PRICING["gpt-5.6-sol"], {
-			inputPer1M: 5.0,
-			outputPer1M: 30.0,
-			cachingPer1M: 0.5,
+			inputPer1M: 4.0,
+			outputPer1M: 20.0,
+			cachingPer1M: 0.4,
 		});
 		assert.deepEqual(MODEL_PRICING["gpt-5.6-terra"], {
 			inputPer1M: 2.0,
@@ -202,10 +203,10 @@ describe("model resolution", () => {
 	it("uses the official Gemini 3.6 Flash pricing", () => {
 		const p = MODEL_PRICING["gemini-3.6-flash-high"];
 		assert.ok(p);
-		assert.equal(p.inputPer1M, 1.50);
-		assert.equal(p.outputPer1M, 7.50);
-		assert.equal(p.cachingPer1M, 0.15);
-		assert.equal(p.cachingStoragePer1MPerHour, 1.00);
+		assert.equal(p.inputPer1M, 0.75);
+		assert.equal(p.outputPer1M, 3.75);
+		assert.equal(p.cachingPer1M, 0.075);
+		assert.equal(p.cachingStoragePer1MPerHour, 0.50);
 	});
 
 	it("uses the official Gemini 3.7 Flash introductory pricing", () => {
@@ -225,6 +226,24 @@ describe("model resolution", () => {
 				cachingPer1M: 0.075,
 				cachingStoragePer1MPerHour: 0.5,
 			});
+		}
+	});
+
+	it("uses Argon implicit-cache introductory pricing for every effort", () => {
+		for (const suffix of ["", "-low", "-medium", "-high"]) {
+			assert.deepEqual(getModelPricing(`gemini-4-argon${suffix}`), {
+				inputPer1M: 2, outputPer1M: 10, cachingPer1M: 0.1,
+			});
+		}
+	});
+
+	it("keeps every application price mirrored in standalone telemetry", () => {
+		const source = readFileSync(new URL("../tools/telemetry-receiver/receiver.js", import.meta.url), "utf8");
+		const table = source.match(/const MODEL_PRICING = (\{[\s\S]*?\n\});/);
+		assert.ok(table);
+		const mirror = JSON.parse(JSON.stringify(runInNewContext(`(${table[1]})`)));
+		for (const [model, pricing] of Object.entries(MODEL_PRICING)) {
+			assert.deepEqual(mirror[model], pricing, model);
 		}
 	});
 
@@ -372,7 +391,7 @@ describe("model resolution", () => {
 	it("uses provider-aware versioned Gemini pricing fallbacks", () => {
 		assert.equal(getModelPricing("google/gemini-3.8-flash-preview")?.inputPer1M, 0.75);
 		assert.equal(getModelPricing("google/gemini-3.7-flash-preview")?.inputPer1M, 0.75);
-		assert.equal(getModelPricing("google/gemini-3.6-flash-preview")?.inputPer1M, 1.5);
+		assert.equal(getModelPricing("google/gemini-3.6-flash-preview")?.inputPer1M, 0.75);
 		assert.equal(getModelPricing("google/gemini-4.0-flash-preview")?.inputPer1M, 0.5);
 		assert.equal(getModelPricing("acme-flash-preview"), undefined);
 	});

@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 function evaluateRetiredModelAssertion(): boolean {
   const source = readFileSync("test/model-catalog.test.ts", "utf8");
-  const title = 'it("does not advertise retired gemini-3.5-flash ids"';
+  const title = 'it("advertises exact gemini-3.5 ids only when discovered"';
   const testStart = source.indexOf(title);
   assert.notEqual(testStart, -1, "catalog regression test is missing");
   const testEndCandidate = source.indexOf("\nit(\"", testStart + title.length);
@@ -49,6 +49,6 @@ function evaluateRetiredModelAssertion(): boolean {
   return Function("payload", `"use strict"; return (${source.slice(expressionStart, expressionEnd)});`)(payload) as boolean;
 }
 
-test("catalog assertion rejects retired gemini-3.5-pro (4469ac04)", () => {
+test("catalog assertion rejects a different unpublished gemini-3.5-pro (4469ac04)", () => {
   assert.equal(evaluateRetiredModelAssertion(), false);
 });

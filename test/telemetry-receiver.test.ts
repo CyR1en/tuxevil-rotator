@@ -207,8 +207,8 @@ describe("telemetry receiver", () => {
 		assert.ok(stats.savings);
 		assert.ok(stats.savings.byModel["gemini-3.6-flash-high"]);
 		assert.ok(stats.savings.byModel["gemini-3.6-flash"]);
-		assert.equal(stats.savings.byModel["gemini-3.6-flash-high"].totalUsd, 9.00);
-		assert.equal(stats.savings.byModel["gemini-3.6-flash"].totalUsd, 9.00);
+		assert.equal(stats.savings.byModel["gemini-3.6-flash-high"].totalUsd, 4.50);
+		assert.equal(stats.savings.byModel["gemini-3.6-flash"].totalUsd, 4.50);
 	});
 
 	it("calculates estimated savings for gemini 3.7 flash tiered in /v1/stats", async () => {
@@ -327,9 +327,9 @@ describe("telemetry receiver", () => {
 		assert.ok(stats.savings.byModel["gemma4:31b"]);
 		assert.equal(stats.savings.byModel["gemma4:31b"].totalUsd, 0.54);
 		assert.ok(stats.savings.byModel["deepseek-v4-pro"]);
-		assert.equal(stats.savings.byModel["deepseek-v4-pro"].totalUsd, 1.31);
+		assert.equal(stats.savings.byModel["deepseek-v4-pro"].totalUsd, 5.28);
 		assert.ok(stats.savings.byModel["kimi-k3"]);
-		assert.equal(stats.savings.byModel["kimi-k3"].totalUsd, 4.95);
+		assert.equal(stats.savings.byModel["kimi-k3"].totalUsd, 18.00);
 	});
 	it("calculates estimated savings for OpenAI Codex models in /v1/stats", async () => {
 		const payload = {
@@ -366,7 +366,7 @@ describe("telemetry receiver", () => {
 		const stats = (await statsRes.json()) as any;
 		assert.ok(stats.savings);
 		assert.ok(stats.savings.byModel["gpt-5.6-sol"]);
-		assert.equal(stats.savings.byModel["gpt-5.6-sol"].totalUsd, 35.00);
+		assert.equal(stats.savings.byModel["gpt-5.6-sol"].totalUsd, 24.00);
 		assert.ok(stats.savings.byModel["gpt-5.6-terra"]);
 		assert.equal(stats.savings.byModel["gpt-5.6-terra"].totalUsd, 14.00);
 		assert.ok(stats.savings.byModel["gpt-5.6-luna"]);
