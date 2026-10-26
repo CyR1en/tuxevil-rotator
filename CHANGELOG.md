@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Persistent Antigravity catalogs**: Save versioned model snapshots per account with credential fingerprints and validated metadata, restoring availability before the first quota poll. Persist successful catalog updates even without quota values, reject malformed saved snapshots, and exclude disabled or flagged accounts. Historical model IDs without an active snapshot return 404 without forwarding. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42) by [@javargasm](https://github.com/javargasm))
+- **Antigravity benchmark responses**: Extract visible text from the upstream `response.candidates` envelope, omit thinking parts, and count cumulative output-token usage once instead of summing repeated totals. Verified with a live `gemini-3-flash` response returning `OK` and one output token.
+
+### Changed
+
+- **Dynamic model metadata**: Allow upstream-advertised Gemini 3.5 IDs, preserve exact model variants and explicit effort aliases, and prefer dynamic context metadata after operator overrides. Add Gemini 4 Argon metadata without inventing availability for unadvertised variants. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42))
+- **Antigravity client headers**: Update the default client version to 2.26.0 with the `antigravity/hub` User-Agent and include client metadata headers on quota requests. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42))
+- **Pricing estimates**: Refresh model pricing and synchronize the standalone telemetry receiver table; document official sources, historical estimates, promotional windows, and estimation limits in [the pricing audit](docs/model-pricing.md). ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42))
+
+### Contributors
+
+- Thanks to [@javargasm](https://github.com/javargasm) for persistent Antigravity catalog snapshots, snapshot-based admission, model metadata and client-header updates, pricing maintenance, and restart/HTTP routing regression coverage in [PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42).
+
 ## [4.2.2] - 2026-10-24
 
 ### Security
