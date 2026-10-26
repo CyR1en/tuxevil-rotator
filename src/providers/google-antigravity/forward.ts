@@ -177,7 +177,7 @@ function extractTextFromSseEvent(eventText: string): string | null {
   try {
     const parsed = JSON.parse(payload);
     if (parsed && typeof parsed === "object") {
-      const p = parsed as Record<string, unknown>;
+      const p = isRecord(parsed.response) ? parsed.response : parsed;
       if (
         Array.isArray(p.candidates) &&
         p.candidates[0] &&
@@ -191,6 +191,7 @@ function extractTextFromSseEvent(eventText: string): string | null {
               .map((part) =>
                 part &&
                 typeof part === "object" &&
+                (part as Record<string, unknown>).thought !== true &&
                 typeof (part as Record<string, unknown>).text === "string"
                   ? (part as Record<string, unknown>).text
                   : "",
@@ -282,7 +283,8 @@ function benchmarkUsage(raw: string): { outputTokens: number } | null {
   for (const event of raw.split(/\r?\n\r?\n/)) {
     const usage = extractUsageFromSseEvent(event);
     if (usage) {
-      outputTokens += usage.outputTokens;
+      // Antigravity repeats cumulative usage in content and final events.
+      outputTokens = Math.max(outputTokens, usage.outputTokens);
     }
   }
   return { outputTokens };

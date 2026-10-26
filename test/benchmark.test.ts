@@ -7,6 +7,8 @@ import {
   summarizeBenchmarkResults,
 } from "../src/proxy.js";
 
+import { getBenchmarkSpec } from "../src/providers/google-antigravity/forward.js";
+
 function makeAccount(overrides: Partial<AccountRuntime> = {}): AccountRuntime {
   return {
     config: {
@@ -179,5 +181,30 @@ describe("account benchmark", () => {
       averageTtfbMs: 40,
       averageTokensPerSecond: 100,
     });
+  });
+});
+
+
+describe("Antigravity benchmark response parsing", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    it(`reads wrapped visible text and cumulative usage (${JSON.stringify(newline)})`, () => {
+      const spec = getBenchmarkSpec(makeAccount());
+      const payloads = [
+        { candidates: [{ content: { parts: [{ thought: true, text: "internal reasoning" }] } }], usageMetadata: { promptTokenCount: 6 } },
+        { candidates: [{ content: { parts: [{ text: "O" }] } }], usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 1 } },
+        { candidates: [{ content: { parts: [{ text: "K" }] } }], usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 2 } },
+        { candidates: [{ content: { parts: [{ text: "", thoughtSignature: "fixture" }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 2 } },
+      ];
+      const raw = payloads.map((response) => `data: ${JSON.stringify({ response })}${newline}${newline}`).join("");
+      assert.equal(spec.parseText(raw), "OK");
+      assert.deepEqual(spec.parseUsage(raw), { outputTokens: 2 });
+    });
+  }
+
+  it("preserves unwrapped responses and ignores non-content events", () => {
+    const spec = getBenchmarkSpec(makeAccount());
+    const raw = 'event: ping\n\ndata: invalid\n\ndata: {"candidates":[{"content":{"parts":[{"text":"OK"}]}}],"usageMetadata":{"candidatesTokenCount":1}}\n\ndata: [DONE]\n\n';
+    assert.equal(spec.parseText(raw), "OK");
+    assert.deepEqual(spec.parseUsage(raw), { outputTokens: 1 });
   });
 });
