@@ -154,8 +154,6 @@ describe("native /api/chat route (ollama payload + content normalization)", () =
 		assert.equal(forwarded.model, "kimi-k3");
 		assert.equal(forwarded.messages[0].content, "hello");
 		assert.equal(forwarded.messages[1].content, "see this");
-		assert.deepEqual(forwarded.messages[1].images, [
-			"data:image/png;base64,AAAA",
-		]);
+		assert.deepEqual(forwarded.messages[1].images, ["AAAA"]);
 	});
 });

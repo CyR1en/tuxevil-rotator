@@ -86,6 +86,16 @@ export function buildOllamaPayload(body: RequestBody): Record<string, unknown> {
     if (!isRecord(msg)) return msg;
     const normalized = { ...msg };
     normalizeOllamaMessageContent(normalized);
+    // Ollama decodes images[] directly as base64. OpenAI/Anthropic image
+    // blocks use data URLs, whose prefix fails decoding at the ':' byte.
+    // Normalize after merging so native images and content blocks both work.
+    if (Array.isArray(normalized.images)) {
+      normalized.images = normalized.images.map((image: unknown) =>
+        typeof image === "string"
+          ? image.replace(/^data:[^,]*;base64,/i, "")
+          : image,
+      );
+    }
     return normalized;
   });
   const payload: Record<string, unknown> = {
