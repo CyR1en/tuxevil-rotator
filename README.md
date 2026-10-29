@@ -55,7 +55,7 @@ Originally built as a multi-account rotator for Google Antigravity. It now gener
 
 ## Current Model Update
 
-- **Unreleased: Persistent Antigravity catalogs**: Restore validated model snapshots per account before the first quota poll, preserve exact upstream variants and metadata, and reject withdrawn models without forwarding. Gemini 3.5 models can appear when advertised upstream; Argon metadata does not create availability for unadvertised variants. Includes updated Antigravity client headers, pricing estimates, and restart/routing regression coverage. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42) by [@javargasm](https://github.com/javargasm))
+- **Unreleased: Dashboard Playground, Codex reasoning connectors, and persistent Antigravity catalogs**: Test enabled models from `/dashboard/playground` across Chat, 2–3 model Compare, 5-case Chat Completions Compliance, and Audio Transcription (file upload including `.oga`/`.ogg` plus browser microphone recording) with IndexedDB workspaces and JSON export/import. `GET /v1/models` now publishes Codex reasoning effort metadata (`low`, `medium`, `high`, `xhigh`, `max`) and propagates it through `install-opencode`, the OpenCode 2 discovery plugin, and `install-agent` (including the new `openclaw` target). Also strips data URL prefixes on Ollama vision image payloads and restores validated Antigravity model snapshots per account before the first quota poll with updated client headers and pricing estimates. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42) by [@javargasm](https://github.com/javargasm))
 
 - **v4.2.2: Security updates and dynamic model discovery**: Requires patched Node.js releases (22.23.4+, 24.22.1+, or 26.12.1+ on their supported release lines), updates Undici to 7.30.1, and prevents long URL slash sequences from blocking the OpenCode discovery plugin. Antigravity models now follow live account catalogs, and installers use the OpenCode 2 plugin API. Upgrade Node.js and restart existing rotator services after updating the package. ([Release notes](https://github.com/tuxevil/tuxevil-rotator/releases/tag/v4.2.2); [PR #41](https://github.com/tuxevil/tuxevil-rotator/pull/41) by [@CyR1en](https://github.com/CyR1en))
 
@@ -242,7 +242,7 @@ tuxevil-rotator install-agent --target auto
 tuxevil-rotator install-agent --target opencode,hermes,openclaw
 ```
 
-Use `--target all` or a comma-separated list (`opencode,hermes,pi,codex`) to choose clients. Add `--host <hostname> --user <ssh-user>` to configure them over SSH, or `--dry-run` to review the generated installer first. For OpenCode's live model catalog, use `tuxevil-rotator install-opencode`; see the [OpenCode integration guide](docs/integrations/opencode.md).
+Use `--target all` or a comma-separated list (`opencode,hermes,openclaw,pi,codex`) to choose clients. Add `--host <hostname> --user <ssh-user>` to configure them over SSH, or `--dry-run` to review the generated installer first. For OpenCode's live model catalog, use `tuxevil-rotator install-opencode`; see the [OpenCode integration guide](docs/integrations/opencode.md).
 
 > **Rather have your agent do all of this?** The [`agent-install-prompt`](docs/agent-install-prompt.md) is a copy-paste prompt (English/Spanish) that makes any coding agent perform the whole setup for a non-technical user: install, account logins with hand-holding, background service, agent wiring, and verification.
 
@@ -303,6 +303,7 @@ After starting the proxy, open `http://localhost:51200/dashboard` and sign in wi
 - **Overview** — whether routing works right now, one row per model pool (Claude, Gemini, Codex, Ollama, OpenCode) with pooled quota, the account serving it, what is next in line, the next reset and how long the quota lasts at the current rate, plus a list of what needs you with the fix one click away
 - **Accounts** — cards with each account's quota per model, or a compact sortable list; each account opens a drawer with its quota windows, routing decisions, health breakdown, limits and every action (re-enable, restore, start idle windows, tier, quarantine, remove)
 - **Models** — provider order, provider and per-account switches, individual model switches, quota and health summaries, and optional review of newly discovered models
+- **Playground** — interactive Chat (with vision and tools inspection), side-by-side 2–3 model Compare, 5-case Chat Completions API Compliance, and Audio Transcription (file upload and microphone recording) with browser-saved workspaces and JSON export/import
 - **Requests** — a live tail of requests and rotator events, and with PostgreSQL the full history with payloads and per-key totals
 - **Usage** — token volume by model with 1h–30d ranges, estimated savings at list prices, latency percentiles and a 60-day activity heatmap
 - **Virtual keys** and **Settings** — key management, routing controls and policy, a benchmark, and the raw configuration file
