@@ -95,7 +95,7 @@ import {
   handleCliLoginApi,
 } from "./onboarding.js";
 import { requireAdmin } from "./admin-auth.js";
-import { PayloadTooLargeError, readLimitedBody } from "./body-limit.js";
+import { getMaxBodyBytes, PayloadTooLargeError, readLimitedBody } from "./body-limit.js";
 import { validateConfig, validateProxyRequestBody } from "./validators.js";
 import { calculateBackoffMs } from "./fetch-with-retry.js";
 import { logger } from "./logger.js";
@@ -191,6 +191,7 @@ import {
   handleAnthropicMessages,
   handleGeminiGenerateContent,
   handleOpenAIChatCompletions,
+  handlePlaygroundChatCompletions,
   handleOpenAIResponsesCancel,
   handleOpenAIResponsesCreate,
   handleOpenAIResponsesDelete,
@@ -2772,6 +2773,24 @@ export function startProxy(
     if (method === "GET" && pathname === "/api/spend/by-key") {
       if (!requireAdmin(req, res)) return;
       void serveGetSpendByKeyApi(req, res);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/api/playground/config") {
+      if (!requireAdmin(req, res)) return;
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ maxBodyBytes: getMaxBodyBytes() }));
+      return;
+    }
+
+    if (method === "POST" && pathname === "/api/playground/chat/completions") {
+      void handlePlaygroundChatCompletions(req, res, rotator).catch((err) => {
+        log(`Playground compat error: ${err}`, rotator, "error");
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "Internal playground error", type: "server_error" } }));
+        } else res.destroy();
+      });
       return;
     }
 

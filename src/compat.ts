@@ -10,6 +10,7 @@ import {
   type CompressionStats,
 } from "./compression/index.js";
 import { idempotencyManager } from "./idempotency.js";
+import { requireAdmin, isSameOriginRequest } from "./admin-auth.js";
 import {
   authenticateVirtualKey,
   isVirtualKeyModelAllowed,
@@ -2935,10 +2936,34 @@ export async function handleGeminiGenerateContent(
   }, rotatorHeaders);
 }
 
+/** Dashboard inference: authorization is checked here, never from a client flag. */
+export async function handlePlaygroundChatCompletions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rotator: AccountRotator,
+): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!isSameOriginRequest(req)) {
+    return writeJson(res, 403, { error: { message: "Playground requests must come from the dashboard's own origin" } });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  req.headers["x-rotator-no-deduplicate"] = "true";
+  await handleChatCompletions(req, res, rotator, true);
+}
+
 export async function handleOpenAIChatCompletions(
   req: IncomingMessage,
   res: ServerResponse,
   rotator: AccountRotator,
+): Promise<void> {
+  await handleChatCompletions(req, res, rotator, false);
+}
+
+async function handleChatCompletions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rotator: AccountRotator,
+  dashboardAdmin: boolean,
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -2965,7 +2990,9 @@ export async function handleOpenAIChatCompletions(
 
   const requestedModel = validation.value.model;
   const autoRequested = isAutoModel(requestedModel);
-  const auth = await authenticateVirtualKey(req, autoRequested ? undefined : requestedModel);
+  const auth = dashboardAdmin
+    ? { authenticated: true, key: null, rawKey: undefined }
+    : await authenticateVirtualKey(req, autoRequested ? undefined : requestedModel);
   if (!auth.authenticated) {
     sendAuthErrorResponse(res, auth);
     return;

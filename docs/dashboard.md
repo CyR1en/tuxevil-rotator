@@ -15,7 +15,7 @@ Behind a reverse proxy, forward the original `Host` header (see [Deployment](dep
 ## Getting around
 
 - **Top bar**: the live connection status, a sidebar toggle, **+** to add an account, the search box, and a bell that lists everything that needs you (the same list as the Overview's **Needs you** panel).
-- **Sidebar**: Overview, Accounts, Models, Requests, Usage and Virtual keys, with Settings at the bottom. The toggle expands it to show labels. The avatar at the foot opens the profile menu: theme, privacy mask, command palette and sign out.
+- **Sidebar**: Overview, Accounts, Models, Playground, Requests, Usage and Virtual keys, with Settings at the bottom. The toggle expands it to show labels. The avatar at the foot opens the profile menu: theme, privacy mask, command palette and sign out.
 - **Command palette**: <kbd>⌘K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd>) jumps to any page or account (search by name, email, provider or status) and runs quick actions: add an account, switch theme, toggle the privacy mask, expand the sidebar, export usage as CSV, sign out.
 - <kbd>/</kbd> focuses the current page's search box, or opens the palette on pages without one.
 - **Links**: every page, filter, sort order and open account drawer is part of the URL, so a link opens exactly the same view. The URL scheme is listed in the [API reference](api-reference.md#dashboard-routes).
@@ -98,6 +98,24 @@ The Models page decides which providers serve traffic and which models clients c
 Clicking a provider opens its drawer at `/dashboard/models/<provider>`: its status with **Sign in again** for a rejected credential, the routing switch, its accounts with a **Use for** switch that turns the provider off for that account only (the account's other providers keep serving), and its models.
 
 Clicking an effort-routed ID opens its editor at `/dashboard/models/effort/<id>`; **New effort model** and **Set up** open it at `/dashboard/models/effort`. Pick a Google Antigravity model for each effort level clients may ask for (a suggested family fills its variants in) and choose the default for requests without a usable effort. **How requests resolve** shows where each level, and everything else, goes, how Claude-style `/v1/messages` requests pick a level, and an example request to copy. **What clients see** lists what changes in `/v1/models` and offers to turn on a variant that is off. Saving applies to new requests immediately. Closing the editor, Back, Forward or leaving the page with unsaved changes asks first.
+
+## Playground
+
+Open **Playground** to test enabled models using your dashboard session. Choose **Chat**, **Compare**, or **Compliance**; links use `/dashboard/playground?tab=chat|compare|compliance`.
+
+- **Chat** supports multi-turn text conversations, PNG/JPEG/WebP image attachments, a system prompt, streaming, temperature, maximum output tokens and reasoning effort. Leave optional parameters blank for provider defaults. Stop interrupts an active request; Retry last turn sends that turn again. Changing the model starts its conversation over.
+- **Compare** sends the same message and images to two or three models concurrently. Each panel keeps its own conversation and can be stopped independently. Settings are synchronized by default; turn synchronization off to configure each panel separately. Errors in one panel do not stop the others.
+- **Tools JSON** accepts an array of OpenAI function definitions. Calls and arguments are shown for inspection; tools are never executed. Tool-call turns and failed or interrupted turns are excluded from subsequent conversation context.
+- Each result shows duration, time until the first content was received by the browser, token usage and available routing headers. First-content timing includes the adapter and transport; it is not a measurement of the provider's internal token generation. Missing metrics remain unavailable. Prices, where available, are estimates at API list rates.
+- **Compliance** runs five Chat Completions checks: basic response structure, SSE streaming and termination, a verifiable system instruction, JSON mode output, and a forced function call. Select up to three models and any cases. Cases run sequentially within each model, with at most three model workers and a 120-second timeout per request. Stop all cancels running and queued cases; Retry failed tests repeats selected Failed/Error cases.
+
+Compliance reports **Passed**, **Failed**, **Not supported**, **Error**, or **Cancelled**, with the request, response and explanation. Only an explicit unsupported-feature error receives **Not supported**. Passing means the observed output meets the case's checks through the rotator; it does not certify a provider or prove that a parameter was enforced internally. Adapter gaps can therefore appear as failed tests.
+
+Tests use real routing, model/provider switches, quotas, compression and request logging. They are not deduplicated and consume real quota. Images require a model and adapter that support vision, and the total request must fit the server's configured body limit (25 MiB by default).
+
+Conversations, drafts, images and compliance results are automatically saved to **IndexedDB in this browser**, without requiring PostgreSQL. New playground creates a separate saved workspace; use the history selector to reopen one. Delete removes the current workspace and Clear history removes all playground workspaces. Local history is separate from the rotator's existing server-side request logs.
+
+**Export JSON** downloads the current workspace in version 1 format, including attachments and results. **Import JSON** validates and restores an export as a new workspace without sending requests. Imports are limited to 100 MiB. Interrupted saved turns can be retried. If browser storage fails, work remains in memory and can still be exported. The privacy mask hides images and raw details and masks account information in displayed text.
 
 ## Requests
 

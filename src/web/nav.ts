@@ -17,6 +17,7 @@ export const NAV: NavItem[] = [
   { id: "overview", label: "Overview", icon: "overview", href: BASE, keywords: "home status health models pools" },
   { id: "accounts", label: "Accounts", icon: "accounts", href: `${BASE}/accounts`, keywords: "providers quota" },
   { id: "models", label: "Models", icon: "models", href: `${BASE}/models`, keywords: "providers order enable disable catalog" },
+  { id: "playground", label: "Playground", icon: "play", href: `${BASE}/playground`, keywords: "chat compare compliance test models images" },
   { id: "requests", label: "Requests", icon: "requests", href: `${BASE}/requests`, keywords: "traffic logs history live" },
   { id: "usage", label: "Usage", icon: "usage", href: `${BASE}/usage`, keywords: "tokens savings latency heatmap" },
   { id: "keys", label: "Virtual keys", icon: "keys", href: `${BASE}/keys`, keywords: "api clients" },

@@ -27,6 +27,7 @@ The dashboard is a single-page app; every view has its own URL. The page shell i
 | `GET` | `/dashboard/accounts/<email>` | Accounts table with that account's detail drawer open |
 | `GET` | `/dashboard/models` | Providers, provider order and model switches (`?filter=`, `?provider=`, `?q=`, `?sort=name`) |
 | `GET` | `/dashboard/models/<provider>` | Models page with that provider's drawer open |
+| `GET` | `/dashboard/playground` | Chat, comparison and API compliance (`?tab=chat\|compare\|compliance`) |
 | `GET` | `/dashboard/requests` | Live request and event tail; `?view=history` for stored spend logs |
 | `GET` | `/dashboard/usage` | Token usage, savings, latency and the activity heatmap (`?range=`) |
 | `GET` | `/dashboard/keys` | Virtual key management |
@@ -58,6 +59,17 @@ Append `?mask=1` to any dashboard URL to open it with the privacy mask on.
 | `POST` | `/api/account-fresh-window-starts/<email>/on` | Allow one account to override the global fresh-window block |
 | `POST` | `/api/account-fresh-window-starts/<email>/off` | Return one account to the global fresh-window policy |
 | `POST` | `/api/self-update` | Trigger npm self-update to latest version |
+
+### Playground
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/playground/config` | Admin-only request limits: `{ maxBodyBytes }` |
+| `POST` | `/api/playground/chat/completions` | Dashboard inference using the Chat Completions request body and JSON/SSE response format |
+
+The inference route requires admin authorization **and** a same-origin request, even when an admin token is supplied. It uses the existing chat inference pipeline with an internal admin authorization context; it neither requires nor creates a virtual key. Client-provided authorization flags have no effect, and `/v1/chat/completions` retains its existing virtual-key restrictions. Responses use `Cache-Control: no-store`.
+
+The route respects routing, model switches, quota accounting, compression, cancellation and existing observability. It disables request deduplication so repeated tests measure independent executions. The browser applies a 120-second timeout per inference. Conversations and compliance orchestration live in the browser; there are no server-side playground history or batch-job endpoints.
 
 ### Models (providers and model switches)
 
