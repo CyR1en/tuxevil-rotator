@@ -1,7 +1,7 @@
 // Browser capture with explicit ownership: every exit releases the microphone.
 export type RecordingState = "idle" | "requesting" | "recording" | "finalizing";
 export const MAX_RECORDING_MS = 5 * 60_000;
-export const AUDIO_ACCEPT = "audio/*,.wav,.mp3,.m4a,.mp4,.webm,.ogg,.flac,.pcm";
+export const AUDIO_ACCEPT = "audio/*,.wav,.mp3,.m4a,.mp4,.webm,.ogg,.oga,.flac,.pcm";
 export function audioFileLimit(maxBodyBytes: number): number {
   return Math.max(0, maxBodyBytes - 64 * 1024);
 }
@@ -11,8 +11,8 @@ export function validateAudioFile(file: File, maxBytes: number): void {
     throw new Error(
       `Audio exceeds the ${(maxBytes / 1024 / 1024).toFixed(1)} MiB upload limit.`,
     );
-  if (!/\.(wav|mp3|m4a|mp4|webm|ogg|flac|pcm)$/i.test(file.name))
-    throw new Error("Choose WAV, MP3, M4A/MP4, WebM, OGG, FLAC or PCM audio.");
+  if (!/\.(wav|mp3|m4a|mp4|webm|ogg|oga|flac|pcm)$/i.test(file.name))
+    throw new Error("Choose WAV, MP3, M4A/MP4, WebM, OGG/OGA, FLAC or PCM audio.");
 }
 export function microphoneError(error: unknown): string {
   const name = error instanceof Error ? error.name : "";

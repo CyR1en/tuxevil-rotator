@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  AUDIO_ACCEPT,
   AudioRecorder,
   audioFileLimit,
   microphoneError,
@@ -221,6 +222,23 @@ describe("transcription client and persistence", () => {
         }),
       /Invalid playground/,
     );
+  });
+  it("accepts .oga uploads regardless of the browser MIME label", async () => {
+    assert.ok(AUDIO_ACCEPT.split(",").includes(".oga"));
+    for (const type of ["audio/ogg", "application/ogg", ""]) {
+      const file = new File(["OggS audio bytes"], "voice.OGA", { type });
+      const result = await transcribeAudio(
+        { ...input, file },
+        new AbortController().signal,
+        async (_url, init) => {
+          const uploaded = (init?.body as FormData).get("file") as File;
+          assert.equal(uploaded.name, "voice.OGA");
+          assert.equal(await uploaded.text(), "OggS audio bytes");
+          return Response.json({ text: "Hola" });
+        },
+      );
+      assert.equal(result.text, "Hola");
+    }
   });
   it("validates uploads and displays server errors and silence correctly", async () => {
     assert.throws(

@@ -104,7 +104,7 @@ export function resolveMimeType(fileName: string, mimeType?: string): string {
   if (lower.endsWith(".mp3")) return "audio/mp3";
   if (lower.endsWith(".m4a")) return "audio/m4a";
   if (lower.endsWith(".webm")) return "audio/webm;codecs=opus";
-  if (lower.endsWith(".ogg")) return "audio/ogg";
+  if (lower.endsWith(".ogg") || lower.endsWith(".oga")) return "audio/ogg";
   if (lower.endsWith(".flac")) return "audio/flac";
   if (lower.endsWith(".pcm")) return "audio/pcm;rate=16000";
   return "audio/wav";

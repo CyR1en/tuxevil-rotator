@@ -309,7 +309,7 @@ export function TranscriptionPage({
             </p>
           )}
           <p class="field-hint">
-            WAV, MP3, M4A/MP4, WebM, OGG, FLAC or PCM. Up to{" "}
+            WAV, MP3, M4A/MP4, WebM, OGG/OGA, FLAC or PCM. Up to{" "}
             {(maxBytes / 1024 / 1024).toFixed(1)} MiB per file. Recording stops
             automatically after {MAX_RECORDING_MS / 60_000} minutes.
           </p>

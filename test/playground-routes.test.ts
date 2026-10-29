@@ -468,6 +468,26 @@ it("transcribes uploaded audio via rotation with admin authorization and release
     assert.deepEqual(await response.json(), { text: "Hola mundo" });
     assert.match(JSON.stringify(captured), /inlineData/);
     assert.match(JSON.stringify(captured), /audio\/wav/);
+    for (const type of ["", "application/ogg"]) {
+      const bytes = "OggS unchanged audio bytes";
+      const form = new FormData();
+      form.set("file", new File([bytes], "voice.OGA", { type }));
+      form.set("model", "gemini-3.8-flash-high");
+      const oga = await fetch(base + audioRoute, {
+        method: "POST",
+        headers: { cookie, origin: base, "x-skip-safety-jitter": "true" },
+        body: form,
+      });
+      assert.equal(oga.status, 200);
+      assert.deepEqual(await oga.json(), { text: "Hola mundo" });
+      assert.match(JSON.stringify(captured), /"mimeType":"audio\/ogg"/);
+      assert.ok(
+        JSON.stringify(captured).includes(
+          Buffer.from(bytes).toString("base64"),
+        ),
+        "Ogg bytes must not be wrapped as PCM/WAV",
+      );
+    }
     for (const account of accounts) assert.equal(account.inFlightRequests, 0);
   } finally {
     forwardMock.mock.restore();
