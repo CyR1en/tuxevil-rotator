@@ -1,3 +1,4 @@
+import { readFileSync as readCapabilitySource } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
@@ -11,8 +12,18 @@ import {
 
 describe("OpenCode Remote Installer", () => {
   const pluginFiles = {
+    "capabilities.mjs": readCapabilitySource(
+      new URL(
+        "../plugins/opencode-discovery/capabilities.mjs",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
     "index.mjs": "console.log('plugin test');",
-    "package.json": JSON.stringify({ name: "tuxevil-opencode-discovery", type: "module" }),
+    "package.json": JSON.stringify({
+      name: "tuxevil-opencode-discovery",
+      type: "module",
+    }),
   };
 
   it("builds a self-contained shell script that deploys the plugin directory", () => {
@@ -24,7 +35,7 @@ describe("OpenCode Remote Installer", () => {
       targetDir: "~/.config/opencode",
     });
 
-    assert.ok(script.includes("TARGET_DIR=\"~/.config/opencode\""));
+    assert.ok(script.includes('TARGET_DIR="~/.config/opencode"'));
     assert.ok(script.includes("plugins/opencode-discovery"));
     assert.ok(script.includes("$PLUGIN_DIR/index.mjs"));
     assert.ok(script.includes("$PLUGIN_DIR/package.json"));
@@ -66,7 +77,10 @@ describe("OpenCode Remote Installer", () => {
     assert.ok(Array.isArray(config.plugins));
     const entries = config.plugins as Array<Record<string, unknown>>;
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].package, "~/.config/opencode/plugins/opencode-discovery");
+    assert.equal(
+      entries[0].package,
+      "~/.config/opencode/plugins/opencode-discovery",
+    );
     assert.deepEqual(entries[0].options, {
       baseURL: "http://10.128.128.164:51200/v1",
       providerID: "tuxevil-rotator",
@@ -74,9 +88,16 @@ describe("OpenCode Remote Installer", () => {
     });
 
     const provider = config.provider as Record<string, Record<string, unknown>>;
-    assert.equal((provider["tuxevil-rotator"].npm as string), "@ai-sdk/openai-compatible");
+    assert.equal(
+      provider["tuxevil-rotator"].npm as string,
+      "@ai-sdk/openai-compatible",
+    );
     assert.equal(provider["tuxevil-rotator"].name, "Tuxevil Rotator");
-    assert.equal((provider["tuxevil-rotator"].options as Record<string, unknown>).baseURL as unknown, "http://10.128.128.164:51200/v1");
+    assert.equal(
+      (provider["tuxevil-rotator"].options as Record<string, unknown>)
+        .baseURL as unknown,
+      "http://10.128.128.164:51200/v1",
+    );
     assert.ok("apiKey" in (provider["tuxevil-rotator"].options as object));
     assert.equal(config.model, "tuxevil-rotator/gemini-3.8-flash-high");
     assert.ok(!("plugin" in config));
@@ -87,7 +108,10 @@ describe("OpenCode Remote Installer", () => {
       {
         plugin: [
           "other-plugin",
-          ["/old/path/opencode-discovery.js", { baseURL: "http://old:51200/v1" }],
+          [
+            "/old/path/opencode-discovery.js",
+            { baseURL: "http://old:51200/v1" },
+          ],
           "/third-plugin",
         ],
         plugins: [
@@ -98,7 +122,11 @@ describe("OpenCode Remote Installer", () => {
           "tuxevil-rotator": {
             npm: "@ai-sdk/openai-compatible",
             name: "Old Name",
-            options: { baseURL: "http://old:51200/v1", apiKey: "rk-old", headers: { "X-Keep": "1" } },
+            options: {
+              baseURL: "http://old:51200/v1",
+              apiKey: "rk-old",
+              headers: { "X-Keep": "1" },
+            },
             models: { "kept-model": { name: "Kept" } },
           },
         },
@@ -123,7 +151,9 @@ describe("OpenCode Remote Installer", () => {
     assert.deepEqual(config.plugin, ["other-plugin", "/third-plugin"]);
 
     // provider values refreshed, unrelated options and models preserved
-    const provider = (config.provider as Record<string, Record<string, unknown>>)["tuxevil-rotator"];
+    const provider = (
+      config.provider as Record<string, Record<string, unknown>>
+    )["tuxevil-rotator"];
     assert.equal(provider.name, "Tuxevil Rotator");
     const options = provider.options as Record<string, unknown>;
     assert.equal(options.baseURL, "http://10.128.128.164:51200/v1");
@@ -149,15 +179,34 @@ describe("OpenCode Remote Installer", () => {
 
       execSync("bash -s", { input: script, stdio: ["pipe", "pipe", "pipe"] });
 
-      assert.ok(existsSync(join(targetDir, "plugins/opencode-discovery/index.mjs")));
-      assert.ok(existsSync(join(targetDir, "plugins/opencode-discovery/package.json")));
+      assert.ok(
+        existsSync(join(targetDir, "plugins/opencode-discovery/index.mjs")),
+      );
+      assert.ok(
+        existsSync(join(targetDir, "plugins/opencode-discovery/package.json")),
+      );
 
-      const written = JSON.parse(readFileSync(join(targetDir, "opencode.json"), "utf8"));
+      const written = JSON.parse(
+        readFileSync(join(targetDir, "opencode.json"), "utf8"),
+      );
       const plugins = written.plugins as Array<Record<string, unknown>>;
       assert.equal(plugins.length, 1);
-      assert.equal(plugins[0].package, join(targetDir, "plugins/opencode-discovery"));
-      assert.equal((plugins[0].options as Record<string, unknown>).providerID, "e2e-rotator");
-      assert.equal(((written.provider as Record<string, unknown>)["e2e-rotator"] as Record<string, unknown>).name, "E2E Rotator");
+      assert.equal(
+        plugins[0].package,
+        join(targetDir, "plugins/opencode-discovery"),
+      );
+      assert.equal(
+        (plugins[0].options as Record<string, unknown>).providerID,
+        "e2e-rotator",
+      );
+      assert.equal(
+        (
+          (written.provider as Record<string, unknown>)[
+            "e2e-rotator"
+          ] as Record<string, unknown>
+        ).name,
+        "E2E Rotator",
+      );
       assert.equal(written.model, "e2e-rotator/gemini-3.8-flash-high");
     } finally {
       rmSync(targetDir, { recursive: true, force: true });
@@ -165,10 +214,17 @@ describe("OpenCode Remote Installer", () => {
   });
 
   it("rejects incomplete pluginFiles input", () => {
-    assert.throws(() => buildRemoteInstallerScript({ "index.mjs": "x" }, {
-      rotatorUrl: "http://localhost:51200/v1",
-      providerId: "antigravity",
-      providerName: "Antigravity (rotator)",
-    }), /index.mjs, package\.json/);
+    assert.throws(
+      () =>
+        buildRemoteInstallerScript(
+          { "index.mjs": "x" },
+          {
+            rotatorUrl: "http://localhost:51200/v1",
+            providerId: "antigravity",
+            providerName: "Antigravity (rotator)",
+          },
+        ),
+      /index.mjs, package\.json/,
+    );
   });
 });

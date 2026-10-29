@@ -183,3 +183,11 @@ Returns full JSON status including:
 - Daily budget counters
 - Token usage statistics
 - Per-provider quota keys: Antigravity `claude` / `gemini`, Ollama `monthly`, Codex `openai-codex` (and `openai-codex-spark` when the endpoint exposes it)
+
+### Codex reasoning capability metadata
+
+Codex entries in `GET /v1/models` expose `meta.reasoning`, optional `meta.reasoning_efforts` (for example `["low", "medium", "high", "xhigh", "max"]`) and optional `meta.default_reasoning_effort`. Authenticated Codex discovery retains `supported_reasoning_levels` / `default_reasoning_level` when provided upstream; explicit upstream effort lists override the bundled known-model defaults. Unknown discovered models without effort metadata are marked reasoning-capable without guessing a level list. Non-reasoning models do not advertise effort controls.
+
+These are scalar API controls. Harness-only `ultra` is excluded. Clients keep the same model ID and send `reasoning_effort` to Chat Completions or `reasoning: { effort: "high" }` to Responses. The rotator preserves the requested effort; the upstream model validates support. See [OpenAI reasoning documentation](https://developers.openai.com/api/docs/guides/reasoning).
+
+`install-agent --target opencode,hermes,openclaw` configures the corresponding client capabilities. `auto` also detects OpenClaw, and `all` includes it. Both local and SSH installation fetch the catalog from the target machine, so `--rotator-url` must be reachable there. Existing reasoning preferences and default models are preserved.

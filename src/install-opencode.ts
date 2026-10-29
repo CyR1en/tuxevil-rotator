@@ -1,3 +1,5 @@
+import { mergeOpenCodeModels } from "../plugins/opencode-discovery/capabilities.mjs";
+import type { RawRotatorModel } from "../plugins/opencode-discovery/index.mjs";
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -10,7 +12,11 @@ const PLUGIN_SOURCE_DIR = resolve(__dirname, "../plugins/opencode-discovery");
  * Files shipped from the repo plugin directory to the target machine.
  * Keep in sync with plugins/opencode-discovery/.
  */
-const PLUGIN_RUNTIME_SOURCE_FILES = ["index.mjs", "package.json"];
+const PLUGIN_RUNTIME_SOURCE_FILES = [
+  "index.mjs",
+  "package.json",
+  "capabilities.mjs",
+];
 
 export interface InstallOptions {
   host?: string;
@@ -31,6 +37,7 @@ export interface DiscoveryConfigInput {
   providerName: string;
   baseURL: string;
   apiKey?: string;
+  models?: RawRotatorModel[];
 }
 
 /**
@@ -47,12 +54,21 @@ export interface DiscoveryConfigInput {
  */
 export function applyDiscoveryPluginConfig(
   config: Record<string, unknown>,
-  { pluginDir, providerID, providerName, baseURL, apiKey }: DiscoveryConfigInput
+  {
+    pluginDir,
+    providerID,
+    providerName,
+    baseURL,
+    apiKey,
+    models,
+  }: DiscoveryConfigInput,
 ): Record<string, unknown> {
   const isDiscoveryEntry = (entry: unknown): boolean => {
     if (typeof entry === "string") return entry.includes("opencode-discovery");
     if (Array.isArray(entry)) {
-      return typeof entry[0] === "string" && entry[0].includes("opencode-discovery");
+      return (
+        typeof entry[0] === "string" && entry[0].includes("opencode-discovery")
+      );
     }
     if (entry && typeof entry === "object") {
       const pkg = (entry as { package?: unknown }).package;
@@ -66,7 +82,9 @@ export function applyDiscoveryPluginConfig(
     : [];
 
   if (Array.isArray(config.plugin)) {
-    const kept = (config.plugin as unknown[]).filter((entry) => !isDiscoveryEntry(entry));
+    const kept = (config.plugin as unknown[]).filter(
+      (entry) => !isDiscoveryEntry(entry),
+    );
     if (kept.length > 0) {
       config.plugin = kept;
     } else {
@@ -91,6 +109,14 @@ export function applyDiscoveryPluginConfig(
 
   provider[providerID] = {
     ...(existing as object),
+    ...(models?.length
+      ? {
+          models: mergeOpenCodeModels(
+            existing.models as Record<string, unknown>,
+            models,
+          ),
+        }
+      : {}),
     npm: "@ai-sdk/openai-compatible",
     name: providerName,
     options: {
@@ -118,10 +144,12 @@ export function buildRemoteInstallerScript(
     providerName: string;
     apiKey?: string;
     targetDir?: string;
-  }
+  },
 ): string {
-  if (!(PLUGIN_RUNTIME_SOURCE_FILES.every((name) => name in pluginFiles))) {
-    throw new Error(`pluginFiles must include all of: ${PLUGIN_RUNTIME_SOURCE_FILES.join(", ")}`);
+  if (!PLUGIN_RUNTIME_SOURCE_FILES.every((name) => name in pluginFiles)) {
+    throw new Error(
+      `pluginFiles must include all of: ${PLUGIN_RUNTIME_SOURCE_FILES.join(", ")}`,
+    );
   }
 
   const targetDir = options.targetDir || "~/.config/opencode";
@@ -149,6 +177,7 @@ ${fileWriteLines}
 
 # Prepare node script to cleanly mutate or create opencode.json (OpenCode 2.x form)
 node -e '
+(async () => {
 const fs = require("fs");
 const path = require("path");
 
@@ -224,12 +253,22 @@ if (apiKey && apiKey !== "no-key") {
   config.provider[providerID].options.apiKey = apiKey;
 }
 
+const { fetchModels, mergeOpenCodeModels } = await import(require("url").pathToFileURL(path.join(pluginDir, "capabilities.mjs")).href);
+try {
+  const live = await fetchModels(baseURL, apiKey);
+  config.provider[providerID].models = mergeOpenCodeModels(config.provider[providerID].models, live);
+} catch {
+  console.warn("==> Catalog unavailable; existing models retained. Discovery will retry at startup.");
+}
+
 if (!config.model) {
   config.model = providerID + "/gemini-3.8-flash-high";
 }
 
+if (fs.existsSync(configFile)) fs.copyFileSync(configFile, configFile + ".bak." + Date.now());
 fs.writeFileSync(configFile, JSON.stringify(config, null, 2) + "\\n", "utf8");
 console.log("==> Successfully updated " + configFile);
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
 ' "$CONFIG_FILE" "$PLUGIN_DIR" "${providerId}" "${providerName}" "${rotatorUrl}" "${apiKey || ""}"
 
 echo "==> Installation complete! OpenCode is now configured to discover models from ${rotatorUrl}"
@@ -239,17 +278,25 @@ echo "==> Installation complete! OpenCode is now configured to discover models f
 /**
  * Installs the discovery plugin either locally or remotely via SSH.
  */
-export async function installOpenCodePlugin(options: InstallOptions): Promise<void> {
+export async function installOpenCodePlugin(
+  options: InstallOptions,
+): Promise<void> {
   const pluginFiles: Record<string, string> = {};
   for (const name of PLUGIN_RUNTIME_SOURCE_FILES) {
     const filePath = resolve(PLUGIN_SOURCE_DIR, name);
     if (!existsSync(filePath)) {
-      throw new Error(`Plugin directory ${PLUGIN_SOURCE_DIR} does not contain ${name}`);
+      throw new Error(
+        `Plugin directory ${PLUGIN_SOURCE_DIR} does not contain ${name}`,
+      );
     }
     pluginFiles[name] = readFileSync(filePath, "utf8");
   }
 
-  const rotatorUrl = (options.rotatorUrl || process.env.TUXEVIL_ROTATOR_BASE_URL || "http://127.0.0.1:51200/v1").replace(/\/+$/, "");
+  const rotatorUrl = (
+    options.rotatorUrl ||
+    process.env.TUXEVIL_ROTATOR_BASE_URL ||
+    "http://127.0.0.1:51200/v1"
+  ).replace(/\/+$/, "");
   const providerId = options.providerId || "antigravity";
   const providerName = options.providerName || "Antigravity (rotator)";
 
@@ -268,8 +315,14 @@ export async function installOpenCodePlugin(options: InstallOptions): Promise<vo
   }
 
   // Local installation
-  if (!options.host || options.host === "localhost" || options.host === "127.0.0.1") {
-    console.log(`==> Installing OpenCode plugin locally for rotator: ${rotatorUrl}...`);
+  if (
+    !options.host ||
+    options.host === "localhost" ||
+    options.host === "127.0.0.1"
+  ) {
+    console.log(
+      `==> Installing OpenCode plugin locally for rotator: ${rotatorUrl}...`,
+    );
     execSync("bash -s", {
       input: script,
       stdio: ["pipe", "inherit", "inherit"],
@@ -278,11 +331,16 @@ export async function installOpenCodePlugin(options: InstallOptions): Promise<vo
   }
 
   // Remote installation via SSH
-  const sshTarget = options.user ? `${options.user}@${options.host}` : options.host;
+  const sshTarget = options.user
+    ? `${options.user}@${options.host}`
+    : options.host;
   const sshArgs: string[] = [
-    "-o", "BatchMode=yes",
-    "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=accept-new",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=10",
+    "-o",
+    "StrictHostKeyChecking=accept-new",
   ];
 
   if (options.port) {
@@ -294,7 +352,9 @@ export async function installOpenCodePlugin(options: InstallOptions): Promise<vo
 
   const sshCmd = `ssh ${sshArgs.join(" ")} ${sshTarget} "bash -s"`;
 
-  console.log(`==> Installing OpenCode plugin remotely on ${sshTarget} (Rotator: ${rotatorUrl})...`);
+  console.log(
+    `==> Installing OpenCode plugin remotely on ${sshTarget} (Rotator: ${rotatorUrl})...`,
+  );
   try {
     execSync(sshCmd, {
       input: script,
@@ -302,6 +362,8 @@ export async function installOpenCodePlugin(options: InstallOptions): Promise<vo
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`SSH installation failed on ${sshTarget}: ${errorMsg}`, { cause: err });
+    throw new Error(`SSH installation failed on ${sshTarget}: ${errorMsg}`, {
+      cause: err,
+    });
   }
 }

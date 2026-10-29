@@ -8,6 +8,8 @@ export interface CodexModel {
   id: string;
   contextWindow: number;
   reasoning: boolean;
+  reasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
   multimodal: boolean;
   tools: boolean;
   source: "allowlist" | "discovered";
@@ -29,12 +31,66 @@ const CODEX_DISCOVERED_MAX_CONTEXT_WINDOW = 2_000_000;
 const DEFAULT_CODEX_CLIENT_VERSION = "0.162.1";
 const CODEX_DISCOVERED_ID_PATTERN = /^gpt-\d+(?:\.\d+)*(?:-[a-z0-9]+)+$/i;
 export const CODEX_BASE_MODELS: readonly CodexModel[] = [
-  { id: "gpt-6-astra", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
-  { id: "gpt-6-sol", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
-  { id: "gpt-6-luna", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
-  { id: "gpt-5.6-sol", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
-  { id: "gpt-5.6-terra", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
-  { id: "gpt-5.6-luna", contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "allowlist" },
+  {
+    id: "gpt-6-astra",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-6-sol",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-6-luna",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-5.6-sol",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-5.6-terra",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
+  {
+    id: "gpt-5.6-luna",
+    contextWindow: CODEX_CONTEXT_WINDOW,
+    reasoning: true,
+    multimodal: true,
+    tools: true,
+    source: "allowlist",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningEffort: "medium",
+  },
 ];
 
 let discoveredModels: CodexModel[] = [];
@@ -56,14 +112,17 @@ export function getCodexModel(model: string): CodexModel | undefined {
 
 export function getCodexModels(): CodexModel[] {
   const merged = new Map<string, CodexModel>();
-  for (const entry of [...CODEX_BASE_MODELS, ...discoveredModels]) merged.set(entry.id, entry);
+  for (const entry of [...CODEX_BASE_MODELS, ...discoveredModels])
+    merged.set(entry.id, entry);
   return [...merged.values()];
 }
 
 export function isCodexProviderModelId(value: unknown): value is string {
-  return typeof value === "string" &&
+  return (
+    typeof value === "string" &&
     isSafeModelId(value) &&
-    CODEX_DISCOVERED_ID_PATTERN.test(value);
+    CODEX_DISCOVERED_ID_PATTERN.test(value)
+  );
 }
 
 export function setDiscoveredCodexModels(models: CodexModel[]): void {
@@ -71,28 +130,99 @@ export function setDiscoveredCodexModels(models: CodexModel[]): void {
 }
 
 function isSafeModelId(value: unknown): value is string {
-  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(value);
+  return (
+    typeof value === "string" &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(value)
+  );
+}
+
+const REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+function reasoningMetadata(
+  record: Record<string, unknown>,
+  id: string,
+): Pick<CodexModel, "reasoningEfforts" | "defaultReasoningEffort"> {
+  if (record.reasoning === false) return { reasoningEfforts: [] };
+  const known = CODEX_BASE_MODELS.find((model) => model.id === id);
+  const raw =
+    record.supported_reasoning_levels ??
+    record.supported_reasoning_efforts ??
+    record.reasoning_efforts;
+  const efforts = Array.isArray(raw)
+    ? [
+        ...new Set(
+          raw.flatMap((value) => {
+            const effort =
+              typeof value === "string"
+                ? value
+                : value && typeof value === "object"
+                  ? (value as Record<string, unknown>).effort
+                  : null;
+            return typeof effort === "string" && REASONING_EFFORTS.has(effort)
+              ? [effort]
+              : [];
+          }),
+        ),
+      ]
+    : known?.reasoningEfforts;
+  const defaultEffort =
+    record.default_reasoning_level ??
+    record.default_reasoning_effort ??
+    known?.defaultReasoningEffort;
+  return {
+    ...(efforts ? { reasoningEfforts: efforts } : {}),
+    ...(typeof defaultEffort === "string" && efforts?.includes(defaultEffort)
+      ? { defaultReasoningEffort: defaultEffort }
+      : {}),
+  };
 }
 
 function parseModel(value: unknown): CodexModel | null {
   if (typeof value === "string") {
     return isCodexProviderModelId(value)
-      ? { id: value, contextWindow: CODEX_CONTEXT_WINDOW, reasoning: true, multimodal: true, tools: true, source: "discovered" }
+      ? {
+          id: value,
+          contextWindow: CODEX_CONTEXT_WINDOW,
+          reasoning: true,
+          multimodal: true,
+          tools: true,
+          source: "discovered",
+          ...reasoningMetadata({}, value),
+        }
       : null;
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const id = record.id ?? record.slug ?? record.model ?? record.name;
   if (!isCodexProviderModelId(id)) return null;
-  const contextWindow = [record.context_window, record.contextWindow, record.context_length]
-    .find((candidate) => typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0);
+  const contextWindow = [
+    record.context_window,
+    record.contextWindow,
+    record.context_length,
+  ].find(
+    (candidate) =>
+      typeof candidate === "number" &&
+      Number.isFinite(candidate) &&
+      candidate > 0,
+  );
   return {
     id,
-    contextWindow: typeof contextWindow === "number" ? Math.min(contextWindow, CODEX_DISCOVERED_MAX_CONTEXT_WINDOW) : CODEX_CONTEXT_WINDOW,
+    contextWindow:
+      typeof contextWindow === "number"
+        ? Math.min(contextWindow, CODEX_DISCOVERED_MAX_CONTEXT_WINDOW)
+        : CODEX_CONTEXT_WINDOW,
     reasoning: record.reasoning !== false,
     multimodal: record.multimodal !== false && record.vision !== false,
     tools: record.tools !== false && record.tool_calling !== false,
     source: "discovered",
+    ...reasoningMetadata(record, id),
   };
 }
 
@@ -106,7 +236,10 @@ export async function fetchCodexCatalog(
   const endpoint = base.endsWith("/models") ? base : `${base}/models`;
   try {
     const url = new URL(endpoint);
-    url.searchParams.set("client_version", process.env.CODEX_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION);
+    url.searchParams.set(
+      "client_version",
+      process.env.CODEX_CLIENT_VERSION?.trim() || DEFAULT_CODEX_CLIENT_VERSION,
+    );
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
@@ -119,9 +252,15 @@ export async function fetchCodexCatalog(
       dispatcher: getAccountProxyDispatcher(account, CODEX_PROVIDER_ID),
     } as RequestInit & { dispatcher?: unknown });
     if (!response.ok) return getCodexModels();
-    const data = await response.json() as Record<string, unknown>;
-    const raw = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
-    const parsed = raw.map(parseModel).filter((model): model is CodexModel => model !== null);
+    const data = (await response.json()) as Record<string, unknown>;
+    const raw = Array.isArray(data.data)
+      ? data.data
+      : Array.isArray(data.models)
+        ? data.models
+        : [];
+    const parsed = raw
+      .map(parseModel)
+      .filter((model): model is CodexModel => model !== null);
     if (parsed.length > 0) setDiscoveredCodexModels(parsed);
   } catch {
     // Discovery is optional; the safe allowlist remains available.

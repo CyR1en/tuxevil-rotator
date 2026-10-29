@@ -1,11 +1,22 @@
+import { readFileSync as readCapabilitySource } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildCompositeInstallerScript } from "../src/install-agent.js";
 
 describe("Agent Installer", () => {
   const mockPluginFiles = {
+    "capabilities.mjs": readCapabilitySource(
+      new URL(
+        "../plugins/opencode-discovery/capabilities.mjs",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
     "index.mjs": "console.log('mock-plugin');",
-    "package.json": JSON.stringify({ name: "tuxevil-opencode-discovery", type: "module" }),
+    "package.json": JSON.stringify({
+      name: "tuxevil-opencode-discovery",
+      type: "module",
+    }),
   };
 
   it("builds composite script covering auto-detection by default", () => {
@@ -17,9 +28,9 @@ describe("Agent Installer", () => {
       apiKey: "rk-test-key",
     });
 
-    assert.ok(script.includes("ROTATOR_URL=\"http://10.128.128.164:51200/v1\""));
-    assert.ok(script.includes("PROVIDER_ID=\"tuxevil-rotator\""));
-    assert.ok(script.includes("API_KEY=\"rk-test-key\""));
+    assert.ok(script.includes('ROTATOR_URL="http://10.128.128.164:51200/v1"'));
+    assert.ok(script.includes('PROVIDER_ID="tuxevil-rotator"'));
+    assert.ok(script.includes('API_KEY="rk-test-key"'));
 
     // Check agent sections
     assert.ok(script.includes("# 1. OpenCode Configuration"));
@@ -28,7 +39,8 @@ describe("Agent Installer", () => {
     assert.ok(script.includes("# 4. Codex CLI Configuration"));
 
     // Check specific agent signatures
-    assert.ok(script.includes("discover_models"));
+    assert.ok(script.includes("supports_reasoning"));
+    assert.ok(script.includes("# 5. OpenClaw Configuration"));
     assert.ok(script.includes("models.json"));
     assert.ok(script.includes("config.toml"));
     assert.ok(script.includes("opencode-discovery/index.mjs"));
@@ -44,9 +56,9 @@ describe("Agent Installer", () => {
       providerName: "Antigravity",
     });
 
-    assert.ok(script.includes("ROTATOR_URL=\"http://localhost:51200/v1\""));
-    assert.ok(script.includes("should_install \"hermes\""));
-    assert.ok(script.includes("should_install \"pi\""));
+    assert.ok(script.includes('ROTATOR_URL="http://localhost:51200/v1"'));
+    assert.ok(script.includes('should_install "hermes"'));
+    assert.ok(script.includes('should_install "pi"'));
   });
 
   it("handles fallback defaults when apiKey is not provided", () => {
@@ -57,6 +69,6 @@ describe("Agent Installer", () => {
       providerName: "Tuxevil Rotator",
     });
 
-    assert.ok(script.includes("API_KEY=\"no-key\""));
+    assert.ok(script.includes('API_KEY="no-key"'));
   });
 });

@@ -238,6 +238,8 @@ You can configure supported local agents automatically with:
 
 ```bash
 tuxevil-rotator install-agent --target auto
+# Select agents explicitly (includes model reasoning capabilities):
+tuxevil-rotator install-agent --target opencode,hermes,openclaw
 ```
 
 Use `--target all` or a comma-separated list (`opencode,hermes,pi,codex`) to choose clients. Add `--host <hostname> --user <ssh-user>` to configure them over SSH, or `--dry-run` to review the generated installer first. For OpenCode's live model catalog, use `tuxevil-rotator install-opencode`; see the [OpenCode integration guide](docs/integrations/opencode.md).

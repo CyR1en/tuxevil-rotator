@@ -2,6 +2,18 @@
 
 Connect Hermes AI agent to tuxevil-rotator using a custom provider configuration.
 
+## Automatic connection and reasoning
+
+```bash
+tuxevil-rotator install-agent --target hermes --rotator-url http://127.0.0.1:51200/v1
+```
+
+The command honors `HERMES_HOME` (default `~/.hermes`) and adds or updates the named rotator endpoint, populates model context metadata and marks discovered Codex models as reasoning-capable using a named-provider `model_overrides` entry. It preserves existing keys (including `key_env`), API mode, the selected model and `agent.reasoning_effort`. It does not inject a fixed `extra_body.reasoning_effort` or per-model effort override that would prevent interactive changes.
+
+Select the rotator provider and a Codex model, then use `/reasoning low`, `/reasoning medium`, `/reasoning high`, `/reasoning xhigh` or `/reasoning max` as supported by that model. The current valid efforts are published in `/v1/models` under `meta.reasoning_efforts`; Hermes controls the native picker. These settings are passed through the rotator as `reasoning_effort` for Chat Completions or `reasoning.effort` for Responses. See [Hermes custom endpoints](https://hermes-agent.nousresearch.com/docs/integrations/providers).
+
+Re-run installation to refresh the stored model inventory. If the endpoint is offline, existing models remain. Existing configuration is backed up before writing. PyYAML is needed to update a non-JSON YAML file safely; without it the command preserves the file and reports the missing parser. New configurations can be written as JSON, which is valid YAML.
+
 ## Configuration
 
 Edit `~/.hermes/config.yaml`:

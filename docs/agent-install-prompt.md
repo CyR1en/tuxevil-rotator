@@ -122,7 +122,7 @@ STEP 7 — CONNECT MY AGENT (ask me before writing any config file)
 - First try the automatic configurator with --dry-run to preview, then for real:
     tuxevil-rotator install-agent --target auto
   It detects and configures OpenCode (~/.config/opencode), Hermes (~/.hermes),
-  Pi (~/.pi/agent) and Codex (~/.codex) locally and backs up existing configs.
+  OpenClaw (~/.openclaw), Pi (~/.pi/agent) and Codex (~/.codex) locally and backs up existing configs.
 - If I use OpenCode, ALSO run `tuxevil-rotator install-opencode` so OpenCode
   discovers the rotator model catalog automatically.
 - If my agent is not covered (Cursor, Claude Code, Cline, Roo Code, Continue,
@@ -277,7 +277,7 @@ PASO 7 — CONECTAR MI AGENTE (pregúntame antes de escribir cualquier archivo d
 - Primero prueba el configurador automático con --dry-run para previsualizar, y
   luego en serio: `tuxevil-rotator install-agent --target auto`
   Detecta y configura OpenCode (~/.config/opencode), Hermes (~/.hermes),
-  Pi (~/.pi/agent) y Codex (~/.codex) localmente y hace backup de las configs.
+  OpenClaw (~/.openclaw), Pi (~/.pi/agent) y Codex (~/.codex) localmente y hace backup de las configs.
 - Si uso OpenCode, TAMBIÉN corre `tuxevil-rotator install-opencode` para que
   OpenCode descubra el catálogo de modelos del rotador automáticamente.
 - Si mi agente no está cubierto (Cursor, Claude Code, Cline, Roo Code, Continue,

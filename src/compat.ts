@@ -2670,6 +2670,8 @@ export function buildOpenAIModelCatalog(
           family: "openai-codex",
           provider: "openai-codex",
           reasoning: model.reasoning,
+          ...(model.reasoning && model.reasoningEfforts ? { reasoning_efforts: model.reasoningEfforts } : {}),
+          ...(model.reasoning && model.defaultReasoningEffort ? { default_reasoning_effort: model.defaultReasoningEffort } : {}),
           multimodal: model.multimodal,
           tool_calling: model.tools,
         },

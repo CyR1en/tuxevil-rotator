@@ -17,6 +17,8 @@
  *   - refreshMs    background re-discovery interval (default 600000; 0 disables)
  */
 
+import { openCodeReasoning, openCodeVariants } from "./capabilities.mjs"
+
 const PLUGIN_ID = "tuxevil.model-discovery"
 const DEFAULT_BASE_URL = "http://127.0.0.1:51200/v1"
 const DEFAULT_PROVIDER_PACKAGE = "@opencode/ai/providers/openai-compatible"
@@ -208,7 +210,9 @@ export function mapModelToOpenCode(rawModel) {
         tools: toolCalling,
         input: isMultimodal ? ["text", "image"] : ["text"],
         output: ["text"],
+        ...openCodeReasoning(rawModel),
       },
+      ...(openCodeVariants(rawModel).length ? { variants: openCodeVariants(rawModel) } : {}),
     },
   }
 }
@@ -230,7 +234,7 @@ function safeGet(editor, id) {
 function modelSignature(models) {
   return JSON.stringify(
     (models ?? [])
-      .map((model) => model?.id)
+      .map((model) => [model?.id, model?.meta])
       .filter(Boolean)
       .sort(),
   )
@@ -294,6 +298,7 @@ export default {
         name: existingModel?.name || modelDef.name,
         capabilities: { ...modelDef.capabilities, ...(existingModel?.capabilities ?? {}) },
         limit: { ...modelDef.limit, ...(existingModel?.limit ?? {}) },
+        ...(modelDef.variants ? { variants: [...new Map([...modelDef.variants, ...(Array.isArray(existingModel?.variants) ? existingModel.variants : [])].map(v => [v.id, v])).values()] } : {}),
       }
     }
 
