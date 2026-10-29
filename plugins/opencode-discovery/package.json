@@ -9,7 +9,9 @@
   },
   "files": [
     "index.mjs",
-    "index.d.mts"
+    "index.d.mts",
+    "capabilities.mjs",
+    "capabilities.d.mts"
   ],
   "keywords": [
     "opencode",

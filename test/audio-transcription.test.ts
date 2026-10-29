@@ -378,6 +378,9 @@ describe("whisper-1 audio transcription support", () => {
     assert.equal(resolveMimeType("clip.m4a"), "audio/m4a");
     assert.equal(resolveMimeType("stream.webm"), "audio/webm;codecs=opus");
     assert.equal(resolveMimeType("voice.ogg"), "audio/ogg");
+    assert.equal(resolveMimeType("voice.oga"), "audio/ogg");
+    assert.equal(resolveMimeType("voice.OGA", "application/ogg"), "audio/ogg");
+    assert.equal(resolveMimeType("voice.oga", "application/octet-stream"), "audio/ogg");
     assert.equal(resolveMimeType("track.flac"), "audio/flac");
     assert.equal(resolveMimeType("raw.pcm"), "audio/pcm;rate=16000");
     assert.equal(resolveMimeType("unknown.xyz"), "audio/wav");

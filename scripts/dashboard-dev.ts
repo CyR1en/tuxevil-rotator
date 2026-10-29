@@ -617,20 +617,62 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-const { isAdminAuthorized } = await import("../src/admin-auth.js");
+const { isAdminAuthorized, isSameOriginRequest } = await import("../src/admin-auth.js");
 
 async function mockRoute(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url || "/", "http://localhost");
   const path = url.pathname;
   const method = req.method || "GET";
-  const isMocked = path === "/api/models" || path.startsWith("/api/keys") || path.startsWith("/api/spend/") || path === "/api/benchmark";
+  const isMocked = path === "/api/playground/audio/transcriptions" || path === "/api/playground/chat/completions" || path === "/api/models" || path.startsWith("/api/keys") || path.startsWith("/api/spend/") || path === "/api/benchmark";
   if (!isMocked) return false;
   if (!isAdminAuthorized(req)) {
     json(res, 401, { error: "Unauthorized" });
     return true;
   }
+  if (path === "/api/playground/audio/transcriptions" && method === "POST") {
+    if (!isSameOriginRequest(req)) { json(res, 403, { error: "Same origin required" }); return true; }
+    const { readLimitedBody } = await import("../src/body-limit.js");
+    const raw = await readLimitedBody(req);
+    const form = await new Response(new Uint8Array(raw), { headers: { "content-type": req.headers["content-type"] || "" } }).formData();
+    const audio = form.get("file");
+    if (!audio || typeof audio === "string") { json(res, 400, { error: { message: "Missing audio file" } }); return true; }
+    await new Promise(resolve => setTimeout(resolve, 150));
+    json(res, 200, { text: `Simulated transcription of ${audio.name}. This is a development fixture.` });
+    return true;
+  }
+  if (path === "/api/playground/chat/completions" && method === "POST") {
+    if (!isSameOriginRequest(req)) { json(res, 403, { error: "Same origin required" }); return true; }
+    const body = await readBody(req);
+    const messages = body.messages as Array<{ role: string; content: unknown }>;
+    const wantsTools = Boolean(body.tools);
+    const wantsJson = Boolean(body.response_format);
+    const systemTest = messages.some(m => m.role === "system" && String(m.content).includes("ROTATOR_OK"));
+    const text = systemTest ? "ROTATOR_OK" : wantsJson ? '{"rotator_ok":true}' : "Simulated playground response. Your rotator will route this request to the selected model.";
+    const toolCalls = [{ index: 0, id: "call_dev", type: "function", function: { name: "rotator_echo", arguments: '{"text":"ROTATOR_OK"}' } }];
+    const message = { role: "assistant", content: wantsTools ? null : text, ...(wantsTools ? { tool_calls: toolCalls } : {}) };
+    const usage = { prompt_tokens: 24, completion_tokens: 18, total_tokens: 42 };
+    const headers = { "X-Rotator-Model": String(body.model), "X-Rotator-Selected-Provider": "simulated", "X-Rotator-Cost-Usd": "0.000042" };
+    if (!body.stream) {
+      res.writeHead(200, { "Content-Type": "application/json", ...headers });
+      res.end(JSON.stringify({ choices: [{ message, finish_reason: wantsTools ? "tool_calls" : "stop" }], usage }));
+    } else {
+      res.writeHead(200, { "Content-Type": "text/event-stream", ...headers });
+      const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (wantsTools) send({ choices: [{ delta: { tool_calls: toolCalls }, finish_reason: null }] });
+      else for (const word of text.split(" ")) {
+        if (res.destroyed) break;
+        send({ choices: [{ delta: { content: word + " " }, finish_reason: null }] });
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      if (!res.destroyed) {
+        send({ choices: [{ delta: {}, finish_reason: wantsTools ? "tool_calls" : "stop" }], usage });
+        res.end("data: [DONE]\n\n");
+      }
+    }
+    return true;
+  }
   if (path === "/api/models") {
-    json(res, 200, { ok: true, data: [...MODELS, "gemini-3.8-flash-low", "kimi-k3", "gpt-oss:20b"].map((id) => ({ id, owned_by: id.startsWith("glm") || id.includes(":") || id.startsWith("kimi") ? "ollama" : id.startsWith("gpt-5") ? "openai-codex" : id === "big-pickle" ? "opencode-zen" : "tuxevil-rotator" })) });
+    json(res, 200, { ok: true, data: [...MODELS, "whisper-1", "gemini-3.8-flash-low", "kimi-k3", "gpt-oss:20b"].map((id) => ({ id, owned_by: id.startsWith("glm") || id.includes(":") || id.startsWith("kimi") ? "ollama" : id.startsWith("gpt-5") ? "openai-codex" : id === "big-pickle" ? "opencode-zen" : "tuxevil-rotator" })) });
     return true;
   }
   if (path === "/api/benchmark" && method === "POST") {

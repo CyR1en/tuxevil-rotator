@@ -275,8 +275,8 @@ switch (command) {
 
     const targetIdx = args.indexOf("--target") >= 0 ? args.indexOf("--target") : args.indexOf("-t");
     const targetStr = targetIdx >= 0 ? args[targetIdx + 1] : undefined;
-    const targets: ("opencode" | "hermes" | "pi" | "codex" | "auto" | "all")[] = targetStr
-      ? (targetStr.split(",").map((s) => s.trim().toLowerCase()) as ("opencode" | "hermes" | "pi" | "codex" | "auto" | "all")[])
+    const targets: ("opencode" | "hermes" | "pi" | "codex" | "openclaw" | "auto" | "all")[] = targetStr
+      ? (targetStr.split(",").map((s) => s.trim().toLowerCase()) as ("opencode" | "hermes" | "pi" | "codex" | "openclaw" | "auto" | "all")[])
       : ["auto"];
 
     const hostIdx = args.indexOf("--host");
@@ -406,7 +406,7 @@ switch (command) {
     console.log(
       "                                 delete <hash> - Delete a virtual key",
     );
-    console.log("  tuxevil-rotator install-agent     Install rotator config across multiple agents");
+    console.log("  tuxevil-rotator install-agent     Connect opencode, hermes, openclaw, pi or codex (--target auto|all|name)");
     console.log(
       "                                 [--target <auto|all|opencode,hermes,pi,codex>]",
     );

@@ -27,6 +27,7 @@ The dashboard is a single-page app; every view has its own URL. The page shell i
 | `GET` | `/dashboard/accounts/<email>` | Accounts table with that account's detail drawer open |
 | `GET` | `/dashboard/models` | Providers, provider order and model switches (`?filter=`, `?provider=`, `?q=`, `?sort=name`) |
 | `GET` | `/dashboard/models/<provider>` | Models page with that provider's drawer open |
+| `GET` | `/dashboard/playground` | Chat, comparison and API compliance (`?tab=chat\|compare\|compliance\|transcription`) |
 | `GET` | `/dashboard/requests` | Live request and event tail; `?view=history` for stored spend logs |
 | `GET` | `/dashboard/usage` | Token usage, savings, latency and the activity heatmap (`?range=`) |
 | `GET` | `/dashboard/keys` | Virtual key management |
@@ -58,6 +59,20 @@ Append `?mask=1` to any dashboard URL to open it with the privacy mask on.
 | `POST` | `/api/account-fresh-window-starts/<email>/on` | Allow one account to override the global fresh-window block |
 | `POST` | `/api/account-fresh-window-starts/<email>/off` | Return one account to the global fresh-window policy |
 | `POST` | `/api/self-update` | Trigger npm self-update to latest version |
+
+### Playground
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/playground/config` | Admin-only request limits: `{ maxBodyBytes }` |
+| `POST` | `/api/playground/chat/completions` | Dashboard inference using the Chat Completions request body and JSON/SSE response format |
+| `POST` | `/api/playground/audio/transcriptions` | Dashboard audio inference; same multipart fields and response formats as `/v1/audio/transcriptions` |
+
+Both inference routes require admin authorization **and** a same-origin request, even when an admin token is supplied. Chat uses the existing chat inference pipeline with an internal admin authorization context; it neither requires nor creates a virtual key. Client-provided authorization flags have no effect, and `/v1/chat/completions` retains its existing virtual-key restrictions. Responses use `Cache-Control: no-store`.
+
+The audio route reuses the existing transcription pipeline with an internal admin context, preserving model switches, quota accounting, cancellation, logging and its 30-second server deadline. The browser cancels after 40 seconds if no response arrives. `/v1/audio/transcriptions` retains both virtual-key authentication and model-scope checks. Microphone capture uses the browser's MediaRecorder API and uploads the completed recording as a file; it does not use the live audio WebSocket routes. The dashboard CSP permits local `blob:` media for preview.
+
+The route respects routing, model switches, quota accounting, compression, cancellation and existing observability. It disables request deduplication so repeated tests measure independent executions. The browser applies a 120-second timeout per inference. Conversations and compliance orchestration live in the browser; there are no server-side playground history or batch-job endpoints.
 
 ### Models (providers and model switches)
 
@@ -168,3 +183,11 @@ Returns full JSON status including:
 - Daily budget counters
 - Token usage statistics
 - Per-provider quota keys: Antigravity `claude` / `gemini`, Ollama `monthly`, Codex `openai-codex` (and `openai-codex-spark` when the endpoint exposes it)
+
+### Codex reasoning capability metadata
+
+Codex entries in `GET /v1/models` expose `meta.reasoning`, optional `meta.reasoning_efforts` (for example `["low", "medium", "high", "xhigh", "max"]`) and optional `meta.default_reasoning_effort`. Authenticated Codex discovery retains `supported_reasoning_levels` / `default_reasoning_level` when provided upstream; explicit upstream effort lists override the bundled known-model defaults. Unknown discovered models without effort metadata are marked reasoning-capable without guessing a level list. Non-reasoning models do not advertise effort controls.
+
+These are scalar API controls. Harness-only `ultra` is excluded. Clients keep the same model ID and send `reasoning_effort` to Chat Completions or `reasoning: { effort: "high" }` to Responses. The rotator preserves the requested effort; the upstream model validates support. See [OpenAI reasoning documentation](https://developers.openai.com/api/docs/guides/reasoning).
+
+`install-agent --target opencode,hermes,openclaw` configures the corresponding client capabilities. `auto` also detects OpenClaw, and `all` includes it. Both local and SSH installation fetch the catalog from the target machine, so `--rotator-url` must be reachable there. Existing reasoning preferences and default models are preserved.

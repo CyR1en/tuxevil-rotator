@@ -19,7 +19,9 @@ interface FakeCtx {
   options: Record<string, unknown>;
   provider: {
     list: () => Promise<unknown>;
-    transform: (callback: (editor: FakeEditor) => void) => Promise<{ dispose: () => Promise<void> }>;
+    transform: (
+      callback: (editor: FakeEditor) => void,
+    ) => Promise<{ dispose: () => Promise<void> }>;
     reload?: () => Promise<void>;
   };
 }
@@ -71,9 +73,17 @@ describe("OpenCode V2 rotator discovery plugin", () => {
   });
 
   it("normalizes long slash runs without blocking plugin startup", () => {
-    const pluginUrl = new URL("../plugins/opencode-discovery/index.mjs", import.meta.url).href;
+    const pluginUrl = new URL(
+      "../plugins/opencode-discovery/index.mjs",
+      import.meta.url,
+    ).href;
     // Isolate synchronous work: a test-runner timeout cannot interrupt a ReDoS.
-    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
       import assert from "node:assert/strict";
       const { resolvePluginOptions } = await import(${JSON.stringify(pluginUrl)});
       const prefix = "http://localhost:51200/v1";
@@ -81,15 +91,23 @@ describe("OpenCode V2 rotator discovery plugin", () => {
       const internal = prefix + slashes + "x";
       assert.equal(resolvePluginOptions({ baseURL: internal }).baseURL, internal);
       assert.equal(resolvePluginOptions({ baseURL: prefix + slashes }).baseURL, prefix);
-    `], { timeout: 5000, encoding: "utf8" });
+    `,
+      ],
+      { timeout: 5000, encoding: "utf8" },
+    );
     assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   });
 
   it("discovers baseURL/id/name from V2 provider records", () => {
-    const resolved = resolvePluginOptions(
-      {},
-      [{ id: "remote-rot", info: { name: "Remote Tuxevil", settings: { baseURL: "http://10.0.0.99:51200/v1" } } }],
-    );
+    const resolved = resolvePluginOptions({}, [
+      {
+        id: "remote-rot",
+        info: {
+          name: "Remote Tuxevil",
+          settings: { baseURL: "http://10.0.0.99:51200/v1" },
+        },
+      },
+    ]);
     assert.equal(resolved.baseURL, "http://10.0.0.99:51200/v1");
     assert.equal(resolved.providerID, "remote-rot");
     assert.equal(resolved.providerName, "Remote Tuxevil");
@@ -97,10 +115,17 @@ describe("OpenCode V2 rotator discovery plugin", () => {
 
   it("normalizeProviderEntries also accepts the legacy config.provider map", () => {
     const entries = normalizeProviderEntries({
-      "remote-rot": { name: "Remote Tuxevil", options: { baseURL: "http://10.0.0.99:51200/v1" } },
+      "remote-rot": {
+        name: "Remote Tuxevil",
+        options: { baseURL: "http://10.0.0.99:51200/v1" },
+      },
     });
     assert.deepEqual(entries, [
-      { id: "remote-rot", name: "Remote Tuxevil", baseURL: "http://10.0.0.99:51200/v1" },
+      {
+        id: "remote-rot",
+        name: "Remote Tuxevil",
+        baseURL: "http://10.0.0.99:51200/v1",
+      },
     ]);
 
     const resolved = resolvePluginOptions({}, entries);
@@ -118,17 +143,29 @@ describe("OpenCode V2 rotator discovery plugin", () => {
   it("maps raw models to OpenCode model definitions", () => {
     const mapped = mapModelToOpenCode({
       id: "m",
-      meta: { context_length: 1000, max_output_tokens: 200, multimodal: true, tool_calling: false },
+      meta: {
+        context_length: 1000,
+        max_output_tokens: 200,
+        multimodal: true,
+        tool_calling: false,
+      },
     });
     assert.equal(mapped.id, "m");
     assert.deepEqual(mapped.modelDef, {
       name: "m",
       limit: { context: 1000, output: 200 },
-      capabilities: { tools: false, input: ["text", "image"], output: ["text"] },
+      capabilities: {
+        tools: false,
+        input: ["text", "image"],
+        output: ["text"],
+      },
     });
 
     const fallback = mapModelToOpenCode({ id: "d" });
-    assert.deepEqual(fallback.modelDef.limit, { context: 128000, output: 8192 });
+    assert.deepEqual(fallback.modelDef.limit, {
+      context: 128000,
+      output: 8192,
+    });
     assert.equal(fallback.modelDef.capabilities.tools, true);
     assert.deepEqual(fallback.modelDef.capabilities.input, ["text"]);
   });
@@ -139,11 +176,19 @@ describe("OpenCode V2 rotator discovery plugin", () => {
       res.end(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }));
     });
 
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
     const { port } = server.address() as { port: number };
     try {
-      const models = await fetchRotatorModels(`http://127.0.0.1:${port}/v1`, 2000);
-      assert.deepEqual(models.map((m) => m.id), ["m1", "m2"]);
+      const models = await fetchRotatorModels(
+        `http://127.0.0.1:${port}/v1`,
+        2000,
+      );
+      assert.deepEqual(
+        models.map((m) => m.id),
+        ["m1", "m2"],
+      );
     } finally {
       server.close();
     }
@@ -168,7 +213,9 @@ describe("OpenCode V2 rotator discovery plugin", () => {
         }),
       );
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
     const { port } = server.address() as { port: number };
     const baseURL = `http://127.0.0.1:${port}/v1`;
 
@@ -177,10 +224,13 @@ describe("OpenCode V2 rotator discovery plugin", () => {
         name: "Config Name",
         settings: { baseURL: "http://stale:1/v1" },
       },
-      models: new Map([["gptom", { name: "Custom GPTom", limit: { context: 999 } }]]),
+      models: new Map([
+        ["gptom", { name: "Custom GPTom", limit: { context: 999 } }],
+      ]),
     };
 
-    const added: Array<{ info: Record<string, unknown>; models: unknown[] }> = [];
+    const added: Array<{ info: Record<string, unknown>; models: unknown[] }> =
+      [];
     const ctx: FakeCtx = {
       options: {
         baseURL,
@@ -195,7 +245,9 @@ describe("OpenCode V2 rotator discovery plugin", () => {
           const editor: FakeEditor = {
             get: (id) => (id === "rot-test" ? existingProvider : undefined),
             add: (record) => {
-              added.push(record as { info: Record<string, unknown>; models: unknown[] });
+              added.push(
+                record as { info: Record<string, unknown>; models: unknown[] },
+              );
             },
           };
           callback(editor);
@@ -206,7 +258,11 @@ describe("OpenCode V2 rotator discovery plugin", () => {
 
     try {
       const cleanup = await discoveryPlugin.setup(ctx);
-      assert.equal(cleanup, undefined, "refreshMs 0 must not schedule a background timer");
+      assert.equal(
+        cleanup,
+        undefined,
+        "refreshMs 0 must not schedule a background timer",
+      );
       assert.equal(added.length, 1);
 
       const info = added[0].info as Record<string, unknown>;
@@ -219,7 +275,10 @@ describe("OpenCode V2 rotator discovery plugin", () => {
       const models = added[0].models as Array<Record<string, unknown>>;
       assert.equal(models.length, 2);
 
-      const gptom = models.find((m) => m.id === "gptom") as Record<string, unknown>;
+      const gptom = models.find((m) => m.id === "gptom") as Record<
+        string,
+        unknown
+      >;
       assert.equal(gptom?.name, "Custom GPTom");
       const gptomLimit = gptom?.limit as Record<string, number>;
       assert.equal(gptomLimit.context, 999);
@@ -244,7 +303,10 @@ describe("OpenCode V2 rotator discovery plugin", () => {
       provider: {
         list: async () => [],
         transform: async (callback) => {
-          callback({ get: () => undefined, add: (record) => added.push(record) });
+          callback({
+            get: () => undefined,
+            add: (record) => added.push(record),
+          });
           return { dispose: async () => {} };
         },
       },
@@ -258,18 +320,28 @@ describe("OpenCode V2 rotator discovery plugin", () => {
   it("setup degrades safely when the endpoint is unreachable (dead port)", async () => {
     // Bind a port, close it, and use it as a guaranteed-dead endpoint
     const deadServer = http.createServer(() => {});
-    await new Promise<void>((resolve) => deadServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      deadServer.listen(0, "127.0.0.1", resolve),
+    );
     const { port } = deadServer.address() as { port: number };
     deadServer.close();
     await new Promise((resolve) => deadServer.close(resolve));
 
     const added: unknown[] = [];
     const ctx: FakeCtx = {
-      options: { baseURL: `http://127.0.0.1:${port}/v1`, providerID: "rot-test", timeoutMs: 300, refreshMs: 0 },
+      options: {
+        baseURL: `http://127.0.0.1:${port}/v1`,
+        providerID: "rot-test",
+        timeoutMs: 300,
+        refreshMs: 0,
+      },
       provider: {
         list: async () => [],
         transform: async (callback) => {
-          callback({ get: () => undefined, add: (record) => added.push(record) });
+          callback({
+            get: () => undefined,
+            add: (record) => added.push(record),
+          });
           return { dispose: async () => {} };
         },
       },
@@ -279,4 +351,51 @@ describe("OpenCode V2 rotator discovery plugin", () => {
     assert.equal(result, undefined);
     assert.equal(added.length, 0);
   });
+});
+
+it("reloads the provider when effort metadata changes without changing model IDs", async () => {
+  let levels = ["low", "high"];
+  let reloads = 0;
+  const server = http.createServer((_req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        data: [
+          {
+            id: "gpt-test",
+            meta: { reasoning: true, reasoning_efforts: levels },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  let cleanup: (() => void) | undefined;
+  try {
+    const ctx = {
+      options: {
+        baseURL: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`,
+        refreshMs: 10,
+      },
+      provider: {
+        list: async () => [],
+        transform: async (callback: (editor: FakeEditor) => void) => {
+          callback({ get: () => undefined, add() {} });
+          return { dispose: async () => {} };
+        },
+        reload: async () => {
+          reloads++;
+        },
+      },
+    };
+    cleanup = await discoveryPlugin.setup(ctx);
+    levels = ["low", "medium", "high", "xhigh"];
+    for (let i = 0; i < 100 && !reloads; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(reloads > 0);
+  } finally {
+    cleanup?.();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

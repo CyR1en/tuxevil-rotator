@@ -398,7 +398,7 @@ The Language Server uses a self-signed certificate on its loopback listener. The
 - `POST /v1/audio/transcriptions`: OpenAI-compatible multipart audio transcription.
   - Form fields: `file` (audio file), `model` (default: `whisper-1` or `gemini-3.8-flash-low`), `response_format` (`json`, `text`, `verbose_json`), `prompt`, `language`.
   - `prompt` is optional context (vocabulary, names or preceding text). It never replaces the transcription instruction; only its last 1000 characters are used.
-  - Supported audio formats: `.wav`, `.mp3`, `.m4a`, `.webm`, `.ogg`, `.flac`, `.pcm`.
+  - Supported audio formats: `.wav`, `.mp3`, `.m4a`, `.webm`, `.ogg`, `.oga`, `.flac`, `.pcm`.
 - `GET /ws`, `/ws/audio`, `/v1/listen`, `/v1/audio/transcriptions/stream`: Bidirectional WebSocket streaming endpoint (RFC 6455).
   - Streams binary 16kHz PCM audio chunks in real-time.
   - Emits JSON events: `system_status`, `antigravity_ready`, `antigravity_transcript` (with TTFT and interim/final text), and `antigravity_complete`.

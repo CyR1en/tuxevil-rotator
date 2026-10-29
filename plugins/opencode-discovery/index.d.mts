@@ -41,7 +41,8 @@ export interface RawRotatorModel {
 export interface ModelDef {
   name: string;
   limit: { context: number; output: number };
-  capabilities: { tools: boolean; input: string[]; output: string[] };
+  capabilities: { tools: boolean; input: string[]; output: string[]; reasoning?: unknown };
+  variants?: Array<{ id: string; settings: { reasoningEffort: string } }>;
 }
 
 export function normalizeProviderEntries(input: unknown): ProviderEntry[];

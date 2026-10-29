@@ -5895,3 +5895,48 @@ dialog::backdrop {
     box-shadow: none;
   }
 }
+
+/* Playground: the same controls and surfaces as the rest of the dashboard. */
+.playground { display: flex; flex-direction: column; gap: 18px; }
+.pg-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.pg-toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+.pg-toolbar .pg-history { display: block; flex: 1; min-width: 0; max-width: 440px; }
+.pg-history select { text-overflow: ellipsis; min-width: 0; width: 100%; max-width: 100%; }
+.pg-panels { display: grid; gap: 16px; align-items: start; }
+.pg-panels-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pg-panels-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pg-panels > .panel { min-width: 0; }
+.pg-parameters { margin: 14px 0; padding: 12px 0; border-block: 1px solid var(--border); }
+.pg-parameters summary, .pg-inspect summary { color: var(--text-2); cursor: pointer; font-size: 12px; }
+.pg-parameters fieldset { border: 0; padding: 14px 0 0; margin: 0; min-width: 0; }
+.pg-turns { max-height: 65vh; overflow: auto; margin-block: 14px; overflow-wrap: anywhere; }
+.pg-turn { border-top: 1px solid var(--border); padding-block: 14px; }
+.pg-user { background: var(--surface-2); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.pg-user p { white-space: pre-wrap; }
+.pg-user img, .pg-images img { display: block; max-width: 100%; max-height: 180px; object-fit: contain; border-radius: 8px; margin-block: 8px; }
+.pg-answer { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; line-height: 1.65; font-size: 13px; margin-block: 10px; }
+.pg-code { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
+.pg-metrics { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-3); font-size: 11px; margin-block: 12px; }
+.pg-composer { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+.pg-images { display: flex; flex-wrap: wrap; gap: 14px; }
+.pg-images > div { max-width: 220px; }
+.pg-check-models { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; max-height: 240px; overflow: auto; margin-bottom: 18px; }
+.pg-check-models label { display: flex; align-items: start; gap: 8px; overflow-wrap: anywhere; font-size: 12px; }
+.pg-check-models + .pg-toolbar { margin-bottom: 18px; }
+.pg-results { display: grid; gap: 16px; }
+.playground input[type="checkbox"] { accent-color: var(--accent); }
+@media (max-width: 1100px) { .pg-panels-3 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .pg-panels-2 { grid-template-columns: 1fr; }
+  .pg-toolbar .pg-history { max-width: 100%; flex: 1 0 100%; }
+  .pg-check-models { grid-template-columns: 1fr; }
+}
+.pg-composer textarea.input { min-height: 100px; height: auto; resize: vertical; }
+.pg-parameters textarea.input { min-height: 90px; height: auto; resize: vertical; }
+
+/* Audio preview and results share the existing playground surfaces. */
+.pg-transcription { display: grid; gap: 16px; }
+.pg-audio-preview { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); overflow-wrap: anywhere; }
+.pg-audio-preview audio { width: 100%; max-width: 600px; }
+.pg-audio-context.input { min-height: 72px; height: auto; resize: vertical; }
+@media (max-width: 760px) { .playground > .pg-toolbar > .segmented { flex-wrap: wrap; } }

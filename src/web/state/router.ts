@@ -5,7 +5,7 @@ import { computed, signal } from "@preact/signals";
 
 export const BASE = "/dashboard";
 
-export type PageId = "overview" | "accounts" | "models" | "requests" | "usage" | "keys" | "settings";
+export type PageId = "overview" | "accounts" | "models" | "requests" | "usage" | "keys" | "settings" | "playground";
 
 export interface RouteMatch {
   page: PageId | "not-found";
@@ -133,7 +133,7 @@ export function matchRoute(path: string): RouteMatch {
   if (head === "accounts") return { ...none, page: "accounts", account: decodeSegment(second) };
   if (head === "models" && second === "effort") return { ...none, page: "models", effort: { alias: decodeSegment(third) } };
   if (head === "models") return { ...none, page: "models", provider: decodeSegment(second) };
-  if (head === "requests" || head === "usage" || head === "keys" || head === "settings") {
+  if (head === "playground" || head === "requests" || head === "usage" || head === "keys" || head === "settings") {
     return { ...none, page: head };
   }
   return { ...none, page: "not-found" };

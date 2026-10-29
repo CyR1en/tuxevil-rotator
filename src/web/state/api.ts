@@ -33,6 +33,8 @@ export function setUnauthorizedHandler(handler: () => void): void {
   onUnauthorized = handler;
 }
 
+export function notifyUnauthorized(): void { onUnauthorized(); }
+
 function messageFrom(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
@@ -136,6 +138,7 @@ function query(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
+  playgroundConfig: () => request<{ maxBodyBytes: number }>("GET", "/api/playground/config"),
   session: () => request<SessionInfo>("GET", "/api/session", undefined, { ignoreUnauthorized: true }),
   signIn: (token: string) =>
     request<{ ok: true }>("POST", "/api/session", { token }, { ignoreUnauthorized: true }),

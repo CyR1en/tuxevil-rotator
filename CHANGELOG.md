@@ -2,8 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Dashboard Playground**: New `/dashboard/playground` workspace (`?tab=chat|compare|compliance|transcription`) for testing enabled models directly from an authenticated admin session via same-origin `/api/playground/chat/completions`, `/api/playground/audio/transcriptions`, and `/api/playground/config` routes without requiring a virtual key. ([PR #43](https://github.com/tuxevil/tuxevil-rotator/pull/43))
+  - **Chat & Compare**: Multi-turn chat with PNG/JPEG/WebP vision attachments, system prompt, streaming, temperature, max output tokens, reasoning effort, and OpenAI tools JSON inspection, plus side-by-side 2–3 model comparison with synchronized or per-panel controls.
+  - **API Compliance**: Five-case Chat Completions verification suite (basic response structure, SSE streaming, system instruction, JSON mode output, and forced tool calling) across up to three concurrent model workers.
+  - **Transcription**: Audio file upload (`.wav`, `.mp3`, `.m4a`, `.webm`, `.ogg`, `.oga`, `.flac`, `.pcm`) and browser `MediaRecorder` microphone capture with preview, lifecycle cleanup, and transcript export.
+  - **Local workspaces**: Browser IndexedDB persistence with versioned JSON export/import and privacy-mask redaction; raw audio stays in-tab only.
+- **Codex reasoning metadata & agent connectors**: Expose `meta.reasoning`, `meta.reasoning_efforts` (`low`, `medium`, `high`, `xhigh`, `max`), and `meta.default_reasoning_effort` on Codex entries in `GET /v1/models` from upstream discovery and known-model defaults (excluding harness-only `ultra`). Propagate reasoning capabilities across `install-opencode`, the OpenCode 2 discovery plugin (including metadata-only refreshes), and `install-agent` for OpenCode, Hermes, Pi, and the new `openclaw` target (`--target openclaw`, `auto`, and `all`) while preserving existing user configs. ([PR #43](https://github.com/tuxevil/tuxevil-rotator/pull/43))
+
 ### Fixed
 
+- **Ollama vision base64 payloads**: Strip `data:<mime>;base64,` prefixes when building Ollama `images[]` payloads so multimodal requests (such as `gemma4:31b`) no longer fail upstream with `illegal base64 data`.
+- **OGA audio uploads**: Accept `.oga` files in the transcription playground and preserve `audio/ogg` MIME type and raw Ogg bytes without PCM/WAV re-wrapping. ([PR #43](https://github.com/tuxevil/tuxevil-rotator/pull/43))
 - **Persistent Antigravity catalogs**: Save versioned model snapshots per account with credential fingerprints and validated metadata, restoring availability before the first quota poll. Persist successful catalog updates even without quota values, reject malformed saved snapshots, and exclude disabled or flagged accounts. Historical model IDs without an active snapshot return 404 without forwarding. ([PR #42](https://github.com/tuxevil/tuxevil-rotator/pull/42) by [@javargasm](https://github.com/javargasm))
 - **Antigravity benchmark responses**: Extract visible text from the upstream `response.candidates` envelope, omit thinking parts, and count cumulative output-token usage once instead of summing repeated totals. Verified with a live `gemini-3-flash` response returning `OK` and one output token.
 

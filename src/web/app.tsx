@@ -34,6 +34,7 @@ import { ModelsPage } from "./pages/Models.js";
 import { RequestsPage } from "./pages/Requests.js";
 import { UsagePage } from "./pages/Usage.js";
 import { KeysPage } from "./pages/Keys.js";
+import { PlaygroundPage } from "./pages/Playground.js";
 import { SettingsPage } from "./pages/Settings.js";
 import { openAddAccount } from "./pages/shared.js";
 
@@ -136,6 +137,9 @@ function Shell(): JSX.Element {
       break;
     case "keys":
       page = <KeysPage />;
+      break;
+    case "playground":
+      page = <PlaygroundPage />;
       break;
     case "settings":
       page = <SettingsPage />;
