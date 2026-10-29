@@ -1,5 +1,5 @@
 // Shared, browser-independent playground contracts and compatibility evaluators.
-export type PlaygroundTab = "chat" | "compare" | "compliance";
+export type PlaygroundTab = "chat" | "compare" | "compliance" | "transcription";
 export interface ImageAttachment {
   name: string;
   url: string;
@@ -82,6 +82,25 @@ export interface ComplianceResult {
   explanation: string;
   turn: Turn;
 }
+export interface TranscriptionResult {
+  id: string;
+  filename: string;
+  model: string;
+  language: string;
+  prompt: string;
+  text: string;
+  elapsedMs: number;
+  createdAt: number;
+}
+export interface TranscriptionState {
+  model: string;
+  language: string;
+  prompt: string;
+  results: TranscriptionResult[];
+}
+export function newTranscription(): TranscriptionState {
+  return { model: "", language: "", prompt: "", results: [] };
+}
 export interface PlaygroundDocument {
   version: 1;
   id: string;
@@ -95,6 +114,7 @@ export interface PlaygroundDocument {
   complianceModels: string[];
   cases: CaseId[];
   results: ComplianceResult[];
+  transcription?: TranscriptionState;
 }
 export const CASES: Array<{ id: CaseId; label: string }> = [
   { id: "basic", label: "Basic chat" },
@@ -139,6 +159,7 @@ export function newDocument(): PlaygroundDocument {
     complianceModels: [],
     cases: CASES.map((c) => c.id),
     results: [],
+    transcription: newTranscription(),
   };
 }
 export function userMessage(

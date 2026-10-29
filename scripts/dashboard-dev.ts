@@ -623,10 +623,21 @@ async function mockRoute(req: IncomingMessage, res: ServerResponse): Promise<boo
   const url = new URL(req.url || "/", "http://localhost");
   const path = url.pathname;
   const method = req.method || "GET";
-  const isMocked = path === "/api/playground/chat/completions" || path === "/api/models" || path.startsWith("/api/keys") || path.startsWith("/api/spend/") || path === "/api/benchmark";
+  const isMocked = path === "/api/playground/audio/transcriptions" || path === "/api/playground/chat/completions" || path === "/api/models" || path.startsWith("/api/keys") || path.startsWith("/api/spend/") || path === "/api/benchmark";
   if (!isMocked) return false;
   if (!isAdminAuthorized(req)) {
     json(res, 401, { error: "Unauthorized" });
+    return true;
+  }
+  if (path === "/api/playground/audio/transcriptions" && method === "POST") {
+    if (!isSameOriginRequest(req)) { json(res, 403, { error: "Same origin required" }); return true; }
+    const { readLimitedBody } = await import("../src/body-limit.js");
+    const raw = await readLimitedBody(req);
+    const form = await new Response(new Uint8Array(raw), { headers: { "content-type": req.headers["content-type"] || "" } }).formData();
+    const audio = form.get("file");
+    if (!audio || typeof audio === "string") { json(res, 400, { error: { message: "Missing audio file" } }); return true; }
+    await new Promise(resolve => setTimeout(resolve, 150));
+    json(res, 200, { text: `Simulated transcription of ${audio.name}. This is a development fixture.` });
     return true;
   }
   if (path === "/api/playground/chat/completions" && method === "POST") {
@@ -661,7 +672,7 @@ async function mockRoute(req: IncomingMessage, res: ServerResponse): Promise<boo
     return true;
   }
   if (path === "/api/models") {
-    json(res, 200, { ok: true, data: [...MODELS, "gemini-3.8-flash-low", "kimi-k3", "gpt-oss:20b"].map((id) => ({ id, owned_by: id.startsWith("glm") || id.includes(":") || id.startsWith("kimi") ? "ollama" : id.startsWith("gpt-5") ? "openai-codex" : id === "big-pickle" ? "opencode-zen" : "tuxevil-rotator" })) });
+    json(res, 200, { ok: true, data: [...MODELS, "whisper-1", "gemini-3.8-flash-low", "kimi-k3", "gpt-oss:20b"].map((id) => ({ id, owned_by: id.startsWith("glm") || id.includes(":") || id.startsWith("kimi") ? "ollama" : id.startsWith("gpt-5") ? "openai-codex" : id === "big-pickle" ? "opencode-zen" : "tuxevil-rotator" })) });
     return true;
   }
   if (path === "/api/benchmark" && method === "POST") {

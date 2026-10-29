@@ -376,3 +376,101 @@ it("releases reserved capacity when the browser cancels an inference", async () 
     ensureMock.mock.restore();
   }
 });
+
+function postAudio(
+  path: string,
+  headers: Record<string, string> = {},
+  model = "gemini-3.8-flash-high",
+) {
+  const form = new FormData();
+  form.set(
+    "file",
+    new File(["RIFFtest audio bytes"], "audio.wav", { type: "audio/wav" }),
+  );
+  form.set("model", model);
+  form.set("language", "es");
+  return fetch(base + path, { method: "POST", headers, body: form });
+}
+const audioRoute = "/api/playground/audio/transcriptions";
+it("protects dashboard audio inference without weakening public audio key scopes", async () => {
+  assert.equal((await postAudio(audioRoute, { origin: base })).status, 401);
+  assert.equal(
+    (
+      await postAudio(audioRoute, {
+        origin: base,
+        authorization: `Bearer ${rawKey}`,
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (await postAudio(audioRoute, { cookie, origin: "https://other.example" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await postAudio(audioRoute, { "x-rotator-admin-token": "secret" })).status,
+    403,
+  );
+  const allowed = await postAudio(audioRoute, { cookie, origin: base });
+  assert.equal(allowed.status, 404);
+  assert.match(JSON.stringify(await allowed.json()), /turned off/);
+  assert.equal(allowed.headers.get("cache-control"), "no-store");
+  const invalid = await post(audioRoute, { cookie, origin: base });
+  assert.equal(invalid.status, 400);
+  const publicRoute = "/v1/audio/transcriptions";
+  assert.equal(
+    (await postAudio(publicRoute, { cookie, origin: base })).status,
+    401,
+  );
+  assert.equal(
+    (
+      await postAudio(
+        publicRoute,
+        { authorization: `Bearer ${rawKey}` },
+        "gemini-3.1-pro-high",
+      )
+    ).status,
+    403,
+  );
+  blocked = true;
+  keys.clearVirtualKeyCache();
+  assert.equal(
+    (await postAudio(publicRoute, { authorization: `Bearer ${rawKey}` }))
+      .status,
+    403,
+  );
+});
+it("transcribes uploaded audio via rotation with admin authorization and releases capacity", async () => {
+  const { adapter, accounts, ensureMock } = await enableLiveRotator();
+  let captured: unknown;
+  const forwardMock = mock.method(
+    adapter,
+    "forwardRequest",
+    async (_account: unknown, body: import("../src/proxy.js").RequestBody) => {
+      captured = body.request;
+      return {
+        response: new Response(
+          'data: {"response":{"candidates":[{"content":{"parts":[{"text":"Hola mundo"}]},"finishReason":"STOP"}]}}\n\n',
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+        endpoint: "mock://audio",
+      };
+    },
+  );
+  try {
+    const response = await postAudio(audioRoute, {
+      cookie,
+      origin: base,
+      "x-skip-safety-jitter": "true",
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { text: "Hola mundo" });
+    assert.match(JSON.stringify(captured), /inlineData/);
+    assert.match(JSON.stringify(captured), /audio\/wav/);
+    for (const account of accounts) assert.equal(account.inFlightRequests, 0);
+  } finally {
+    forwardMock.mock.restore();
+    ensureMock.mock.restore();
+  }
+});

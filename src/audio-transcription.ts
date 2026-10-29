@@ -4,6 +4,7 @@ import https from "node:https";
 import cp from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { requireAdmin, isSameOriginRequest } from "./admin-auth.js";
 import { readLimitedBody } from "./body-limit.js";
 import { authenticateVirtualKey, sendAuthErrorResponse, type KeyAuthResult } from "./key-auth.js";
 import { logger } from "./logger.js";
@@ -819,16 +820,41 @@ export function getAudioDurationSeconds(audioBuffer: Buffer, mimeType: string): 
   return undefined;
 }
 
-/**
- * Handles standard OpenAI-compatible POST /v1/audio/transcriptions
- */
+/** Browser-only admin inference; public audio routes still require virtual keys. */
+export async function handlePlaygroundAudioTranscriptions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rotator: AccountRotator,
+): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!isSameOriginRequest(req)) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: { message: "Transcription requests must come from the dashboard's own origin" } }));
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  await handleAudioTranscriptions(req, res, rotator, true);
+}
+
+/** Handles standard OpenAI-compatible POST /v1/audio/transcriptions. */
 export async function handleOpenAIAudioTranscriptions(
   req: IncomingMessage,
   res: ServerResponse,
   rotator?: AccountRotator,
 ): Promise<void> {
+  await handleAudioTranscriptions(req, res, rotator, false);
+}
+
+async function handleAudioTranscriptions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rotator: AccountRotator | undefined,
+  dashboardAdmin: boolean,
+): Promise<void> {
   const requestStartedAt = Date.now();
-  const initialAuth = await authenticateVirtualKey(req);
+  const initialAuth: KeyAuthResult = dashboardAdmin
+    ? { authenticated: true, key: null }
+    : await authenticateVirtualKey(req);
   if (!initialAuth.authenticated) {
     sendAuthErrorResponse(res, initialAuth);
     return;
@@ -933,7 +959,7 @@ export async function handleOpenAIAudioTranscriptions(
     ? resolveAudioTranscriptionModel(requestedModel ?? "whisper-1")
     : applyModelAlias(requestedModel ?? "whisper-1");
   spendModel = requestedModel ?? "whisper-1";
-  const modelAuth = await authorizeAudioModel(req, executedModel, requestedModel);
+  const modelAuth = dashboardAdmin ? initialAuth : await authorizeAudioModel(req, executedModel, requestedModel);
   if (!modelAuth.authenticated) {
     logRequest("failure");
     sendAuthErrorResponse(res, modelAuth);

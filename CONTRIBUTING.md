@@ -76,7 +76,7 @@ The dashboard in `src/web` is bundled in memory by esbuild when the rotator star
 npm run dashboard:dev
 ```
 
-It serves the real dashboard routes and admin API against a simulated rotator with sample accounts and live traffic, and rebuilds the bundle on every page load. Open `http://localhost:8899/dashboard?token=dev-token`. The PostgreSQL-backed pages (virtual keys, request history, benchmark) are answered with fixtures. Playground inference is simulated too, so Chat, Compare, images and all five compliance checks can be exercised without provider credentials.
+It serves the real dashboard routes and admin API against a simulated rotator with sample accounts and live traffic, and rebuilds the bundle on every page load. Open `http://localhost:8899/dashboard?token=dev-token`. The PostgreSQL-backed pages (virtual keys, request history, benchmark) are answered with fixtures. Playground inference is simulated too, so Chat, Compare, images, file/microphone transcription and all five compliance checks can be exercised without provider credentials.
 
 | Variable | Default | Effect |
 |----------|---------|--------|

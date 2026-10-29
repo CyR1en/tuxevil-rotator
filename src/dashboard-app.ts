@@ -48,6 +48,7 @@ export const DASHBOARD_CSP = [
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
+  "media-src 'self' blob:",
   "font-src 'self'",
   "connect-src 'self'",
   "manifest-src 'self'",

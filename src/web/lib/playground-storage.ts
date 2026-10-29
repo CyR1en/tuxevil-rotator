@@ -1,4 +1,9 @@
-import { CASES, record, type PlaygroundDocument } from "./playground.js";
+import {
+  CASES,
+  record,
+  newTranscription,
+  type PlaygroundDocument,
+} from "./playground.js";
 
 export interface PlaygroundWorkspace {
   version: 1;
@@ -99,6 +104,28 @@ function panel(v: unknown): boolean {
     v.turns.every(turn)
   );
 }
+function transcription(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (record(value) &&
+      text(value.model) &&
+      text(value.language) &&
+      text(value.prompt) &&
+      Array.isArray(value.results) &&
+      value.results.every(
+        (r) =>
+          record(r) &&
+          text(r.id) &&
+          text(r.filename) &&
+          text(r.model) &&
+          text(r.language) &&
+          text(r.prompt) &&
+          text(r.text) &&
+          finite(r.elapsedMs) &&
+          finite(r.createdAt),
+      ))
+  );
+}
 /** Validate imports before any UI or request-building code sees them. Never run imports. */
 export function parsePlaygroundDocument(input: unknown): PlaygroundDocument {
   if (
@@ -109,6 +136,7 @@ export function parsePlaygroundDocument(input: unknown): PlaygroundDocument {
     !text(input.title) ||
     !finite(input.updatedAt) ||
     !panel(input.chat) ||
+    !transcription(input.transcription) ||
     !Array.isArray(input.compare) ||
     input.compare.length < 2 ||
     input.compare.length > 3 ||
@@ -156,6 +184,7 @@ export function parsePlaygroundDocument(input: unknown): PlaygroundDocument {
   });
   return {
     ...doc,
+    transcription: doc.transcription ?? newTranscription(),
     chat: restorePanel(doc.chat),
     compare: doc.compare.map(restorePanel),
   };

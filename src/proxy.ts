@@ -202,6 +202,7 @@ import {
 } from "./compat.js";
 import {
   handleOpenAIAudioTranscriptions,
+  handlePlaygroundAudioTranscriptions,
   handleAudioWebSocket,
   closeAllAudioWebSockets,
   WS_SHUTDOWN_CLOSE_GRACE_MS,
@@ -2780,6 +2781,17 @@ export function startProxy(
       if (!requireAdmin(req, res)) return;
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify({ maxBodyBytes: getMaxBodyBytes() }));
+      return;
+    }
+
+    if (method === "POST" && pathname === "/api/playground/audio/transcriptions") {
+      void handlePlaygroundAudioTranscriptions(req, res, rotator).catch((err) => {
+        log(`Playground audio error: ${err}`, rotator, "error");
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "Internal transcription error", type: "server_error" } }));
+        } else res.destroy();
+      });
       return;
     }
 

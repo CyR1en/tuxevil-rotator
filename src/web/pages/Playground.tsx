@@ -24,6 +24,7 @@ import {
 import { PlaygroundError, runChat } from "../state/playground-client.js";
 import {
   buildChatRequest,
+  newTranscription,
   CASES,
   complianceRequest,
   emptyResult,
@@ -45,12 +46,14 @@ import {
   type Turn,
 } from "../lib/playground.js";
 import { parsePlaygroundDocument } from "../lib/playground-storage.js";
+import { TranscriptionPage } from "./Transcription.js";
 import { formatMs } from "../lib/format.js";
 
 const TABS: Array<{ value: PlaygroundTab; label: string }> = [
   { value: "chat", label: "Chat" },
   { value: "compare", label: "Compare" },
   { value: "compliance", label: "Compliance" },
+  { value: "transcription", label: "Transcription" },
 ];
 const errorText = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
@@ -59,13 +62,16 @@ export function PlaygroundPage(): JSX.Element {
   const doc = currentDocument();
   const requestedTab = query.value.get("tab");
   const tab: PlaygroundTab =
-    requestedTab === "compare" || requestedTab === "compliance"
+    requestedTab === "compare" ||
+    requestedTab === "compliance" ||
+    requestedTab === "transcription"
       ? requestedTab
       : "chat";
   const [models, setModels] = useState<string[]>([]);
   const [modelError, setModelError] = useState("");
   const [busy, setBusy] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
+  const [audioBusy, setAudioBusy] = useState(false);
   const [maxBodyBytes, setMaxBodyBytes] = useState(25 * 1024 * 1024);
   const controllers = useRef(new Map<string, AbortController>());
   const importRef = useRef<HTMLInputElement>(null);
@@ -79,7 +85,7 @@ export function PlaygroundPage(): JSX.Element {
       a.invalidProviders,
     ]),
   ]);
-  const running = checking || busy.length > 0;
+  const running = checking || busy.length > 0 || audioBusy;
 
   const loadModels = async () => {
     try {
@@ -406,7 +412,7 @@ export function PlaygroundPage(): JSX.Element {
     <>
       <PageHeader
         title="Playground"
-        description="Chat, compare responses and check API compatibility through your rotator."
+        description="Chat, compare, transcribe audio and check API compatibility through your rotator."
         actions={
           <>
             <Button
@@ -530,7 +536,26 @@ export function PlaygroundPage(): JSX.Element {
             <Button onClick={() => void loadModels()}>Reload models</Button>
           </EmptyState>
         )}
-        {tab === "compliance" ? (
+        {tab === "transcription" ? (
+          <TranscriptionPage
+            key={doc.id}
+            state={doc.transcription ?? newTranscription()}
+            models={models}
+            maxBodyBytes={maxBodyBytes}
+            disabled={checking || busy.length > 0}
+            onBusyChange={setAudioBusy}
+            controllers={controllers.current}
+            onChange={(update) =>
+              updateDocument(
+                (d) => ({
+                  ...d,
+                  transcription: update(d.transcription ?? newTranscription()),
+                }),
+                true,
+              )
+            }
+          />
+        ) : tab === "compliance" ? (
           <>
             <Panel
               title="API compliance"

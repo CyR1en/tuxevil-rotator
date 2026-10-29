@@ -5933,3 +5933,10 @@ dialog::backdrop {
 }
 .pg-composer textarea.input { min-height: 100px; height: auto; resize: vertical; }
 .pg-parameters textarea.input { min-height: 90px; height: auto; resize: vertical; }
+
+/* Audio preview and results share the existing playground surfaces. */
+.pg-transcription { display: grid; gap: 16px; }
+.pg-audio-preview { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); overflow-wrap: anywhere; }
+.pg-audio-preview audio { width: 100%; max-width: 600px; }
+.pg-audio-context.input { min-height: 72px; height: auto; resize: vertical; }
+@media (max-width: 760px) { .playground > .pg-toolbar > .segmented { flex-wrap: wrap; } }
