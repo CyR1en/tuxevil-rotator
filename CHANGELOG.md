@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **Dashboard Playground design alignment**: The Playground now uses the dashboard's shared components and layout patterns.
+- **Dashboard Playground design alignment**: The Playground now uses the dashboard's shared components and layout patterns. ([PR #46](https://github.com/tuxevil/tuxevil-rotator/pull/46))
   - **Page header**: workspace history select, a menu with Export / Import / Delete, and a primary **New playground** button.
   - **Panels**: model select, Parameters toggle and actions sit in each panel header; non-default parameters show as tags.
   - **Turns and requests**: turns use inset wells, and request details use the Requests-style inspector (Request / Response / Routing, Copy).
