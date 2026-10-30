@@ -79,6 +79,10 @@ const VERDICT_TONES: Record<Verdict, Tone> = {
 const CANCELLED_MESSAGE = "Request cancelled.";
 const errorText = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
+/** Saved or imported selections may still hold an audio-only model; those
+ * can't answer chat requests, so they are shown but never run. */
+const runnableComplianceModels = (d: PlaygroundDocument): string[] =>
+  d.complianceModels.filter((model) => !isAudioOnlyModel(model));
 const historyLabel = (d: PlaygroundDocument): string =>
   `${masked.value ? "Saved playground" : d.title} · ${formatDateTime(d.updatedAt)}`;
 const copy = async (text: string): Promise<void> =>
@@ -368,12 +372,13 @@ export function PlaygroundPage(): JSX.Element {
     );
   }
   async function runCompliance(retry = false): Promise<void> {
-    if (!doc || !doc.complianceModels.length || !doc.cases.length) return;
+    if (!doc || !runnableComplianceModels(doc).length || !doc.cases.length)
+      return;
     const documentId = doc.id;
     const failed = doc.results.filter(
       (r) => r.verdict === "failed" || r.verdict === "error",
     );
-    const jobs = doc.complianceModels.map((model) => ({
+    const jobs = runnableComplianceModels(doc).map((model) => ({
       model,
       cases: doc.cases.filter(
         (caseId) =>
@@ -486,7 +491,7 @@ export function PlaygroundPage(): JSX.Element {
     </Button>
   );
   const selectedCount = doc.complianceModels.length;
-  const testCount = selectedCount * doc.cases.length;
+  const testCount = runnableComplianceModels(doc).length * doc.cases.length;
   const failedCount = doc.results.filter(
     (r) => r.verdict === "failed" || r.verdict === "error",
   ).length;
@@ -1424,17 +1429,27 @@ const omitImageData = (_: string, value: unknown): unknown =>
 function TurnInspector({
   turn,
   meta,
+  note,
 }: {
   turn: Turn;
   /** Repeat the turn metrics above the tabs (table rows have no room). */
   meta?: boolean;
+  /** A line above everything else, such as a compliance explanation. */
+  note?: string;
 }): JSX.Element {
   const [tab, setTab] = useState<InspectorTab>("request");
   const result = turn.result;
-  const metrics = meta && result && <Metrics result={result} />;
+  const metrics = (
+    <>
+      {note && <p>{note}</p>}
+      {meta && result && <Metrics result={result} />}
+    </>
+  );
+  // The turn list is a polite live region; raw JSON must not be read out
+  // when Details opens or a tab switches.
   if (masked.value)
     return (
-      <div class="inspector">
+      <div class="inspector" aria-live="off">
         {metrics}
         <p class="muted">Raw details hidden while the privacy mask is on.</p>
       </div>
@@ -1454,7 +1469,7 @@ function TurnInspector({
   const text =
     payload === undefined ? "" : JSON.stringify(payload, omitImageData, 2);
   return (
-    <div class="inspector">
+    <div class="inspector" aria-live="off">
       {metrics}
       <div class="tabs tabs-sm" role="tablist" aria-label="Turn details">
         {INSPECTOR_TABS.map((t) => (
@@ -1608,7 +1623,7 @@ function ComplianceResults({
                   {expanded && (
                     <tr class="history-detail">
                       <td colSpan={5}>
-                        <TurnInspector turn={row.turn} meta />
+                        <TurnInspector turn={row.turn} meta note={explanation} />
                       </td>
                     </tr>
                   )}

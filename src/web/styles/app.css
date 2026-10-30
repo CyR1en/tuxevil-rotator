@@ -1562,6 +1562,13 @@ textarea {
   color: var(--text-3);
 }
 
+/* background-color only, so the chevron gradients survive. */
+.select:disabled {
+  background-color: var(--surface-2);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
 /* `.input` is sized for one line; multi-line fields need their own box. */
 textarea.input {
   height: auto;

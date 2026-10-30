@@ -127,6 +127,14 @@ export function TranscriptionPage({
     const root = formRef.current;
     const focused = document.activeElement;
     if (!refocus.current || !root) return;
+    // Cancel holds focus only while permission is pending; once recording
+    // starts, Enter should stop (and keep) the clip rather than discard it.
+    if (recording === "recording" && focused && root.contains(focused)) {
+      root
+        .querySelector<HTMLElement>(".pg-audio-actions button:not(:disabled)")
+        ?.focus();
+      return;
+    }
     if (
       focused &&
       focused !== document.body &&
