@@ -4827,6 +4827,28 @@ a.hero-metric:hover {
 .pg-panel {
   display: flex;
   flex-direction: column;
+  container: pg-panel / inline-size;
+}
+
+/* Narrow conversation panels (three Compare columns, phones) drop the
+ * labels of their header buttons; the label stays for screen readers. */
+@container pg-panel (max-width: 480px) {
+  .pg-collapsible.btn-sm {
+    width: 28px;
+    padding: 0;
+  }
+
+  .pg-collapsible > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 .pg-panel > .panel-head {
@@ -4904,6 +4926,11 @@ a.hero-metric:hover {
   gap: 24px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Focus lands here only from code (after an inline Retry). */
+.pg-turns:focus-visible {
+  box-shadow: none;
 }
 
 .pg-turn {

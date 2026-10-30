@@ -58,7 +58,7 @@ import { parsePlaygroundDocument } from "../lib/playground-storage.js";
 import type { Tone } from "../lib/status.js";
 import { TranscriptionPage } from "./Transcription.js";
 import { copyText } from "./shared.js";
-import { formatDateTime, formatMs, formatUsd } from "../lib/format.js";
+import { formatMs, formatUsd } from "../lib/format.js";
 
 const TABS: Array<{ value: PlaygroundTab; label: string }> = [
   { value: "chat", label: "Chat" },
@@ -83,8 +83,18 @@ const errorText = (err: unknown): string =>
  * can't answer chat requests, so they are shown but never run. */
 const runnableComplianceModels = (d: PlaygroundDocument): string[] =>
   d.complianceModels.filter((model) => !isAudioOnlyModel(model));
+/** Seconds keep playgrounds saved in the same minute apart; under the privacy
+ * mask every title reads "Saved playground". */
+const savedAt = (ms: number): string =>
+  new Date(ms).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 const historyLabel = (d: PlaygroundDocument): string =>
-  `${masked.value ? "Saved playground" : d.title} · ${formatDateTime(d.updatedAt)}`;
+  `${masked.value ? "Saved playground" : d.title} · ${savedAt(d.updatedAt)}`;
 const copy = async (text: string): Promise<void> =>
   toast((await copyText(text)) ? "Copied to the clipboard" : "Copy failed", "info");
 /** Times that were never measured (null, or 0 before a response) read "—";
@@ -113,6 +123,7 @@ export function PlaygroundPage(): JSX.Element {
   const [busy, setBusy] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState<ComplianceProgress | null>(null);
+  const [finished, setFinished] = useState("");
   const [audioBusy, setAudioBusy] = useState(false);
   const [maxBodyBytes, setMaxBodyBytes] = useState(25 * 1024 * 1024);
   const controllers = useRef(new Map<string, AbortController>());
@@ -404,6 +415,7 @@ export function PlaygroundPage(): JSX.Element {
         : [],
     }));
     let done = 0;
+    setFinished("");
     setProgress({ done, total: selected.size, retry });
     setChecking(true);
     try {
@@ -463,6 +475,15 @@ export function PlaygroundPage(): JSX.Element {
     } finally {
       setChecking(false);
       setProgress(null);
+      const latest = currentDocument();
+      if (latest?.id === documentId) {
+        const passed = latest.results.filter(
+          (r) => r.verdict === "passed",
+        ).length;
+        setFinished(
+          `Compliance run finished: ${passed} of ${latest.results.length} tests passed.`,
+        );
+      }
     }
   }
 
@@ -716,7 +737,7 @@ export function PlaygroundPage(): JSX.Element {
                 <span class="sr-only" role="status">
                   {progress
                     ? `Running ${progress.done} of ${progress.total} tests`
-                    : ""}
+                    : finished}
                 </span>
                 <Button
                   icon="refresh"
@@ -864,7 +885,6 @@ export function PlaygroundPage(): JSX.Element {
                   panel={panel}
                   label={`Model ${i + 1}`}
                   compare
-                  compact={doc.compare.length > 2}
                   models={available}
                   busy={busy.includes(panel.id)}
                   running={running}
@@ -878,11 +898,20 @@ export function PlaygroundPage(): JSX.Element {
                   }
                   onRemove={
                     doc.compare.length > 2
-                      ? () =>
+                      ? () => {
                           updateDocument((d) => ({
                             ...d,
                             compare: d.compare.filter((p) => p.id !== panel.id),
-                          }))
+                          }));
+                          // The removed column took focus with it; move to
+                          // the model select of the column now in its place.
+                          requestAnimationFrame(() => {
+                            const selects = document.querySelectorAll<HTMLElement>(
+                              ".pg-compare .pg-model select",
+                            );
+                            selects[Math.min(i, selects.length - 1)]?.focus();
+                          });
+                        }
                       : undefined
                   }
                   onStop={() => controllers.current.get(panel.id)?.abort()}
@@ -895,7 +924,6 @@ export function PlaygroundPage(): JSX.Element {
               panel={doc.chat}
               label="Model"
               compare={false}
-              compact={false}
               models={available}
               busy={busy.includes(doc.chat.id)}
               running={running}
@@ -1012,7 +1040,6 @@ function ConversationPanel({
   panel,
   label,
   compare,
-  compact,
   models,
   busy,
   running,
@@ -1027,8 +1054,6 @@ function ConversationPanel({
   /** Accessible name of the model select ("Model", "Model 1", …). */
   label: string;
   compare: boolean;
-  /** Icon-only header buttons, for three columns. */
-  compact: boolean;
   models: string[];
   busy: boolean;
   running: boolean;
@@ -1040,6 +1065,7 @@ function ConversationPanel({
   onStop: () => void;
 }): JSX.Element {
   const [paramsOpen, setParamsOpen] = useState(false);
+  const turnsRef = useRef<HTMLDivElement>(null);
   const paramsId = `pg-params-${panel.id}`;
   const tags = parameterTags(panel.params);
   const idle = running || !panel.turns.length;
@@ -1086,8 +1112,8 @@ function ConversationPanel({
         <Button
           size="sm"
           icon="stop"
-          iconOnly={compact}
-          title={compact ? `Stop ${label}` : undefined}
+          class="pg-collapsible"
+          title={`Stop ${label}`}
           aria-label={`Stop ${label}`}
           onClick={onStop}
         >
@@ -1098,8 +1124,8 @@ function ConversationPanel({
         variant="ghost"
         size="sm"
         icon="settings"
-        iconOnly={compact}
-        title={compact ? "Parameters" : undefined}
+        class="pg-collapsible"
+        title="Parameters"
         aria-label={compare ? `${label} parameters` : undefined}
         aria-expanded={paramsOpen}
         aria-controls={paramsOpen ? paramsId : undefined}
@@ -1110,6 +1136,12 @@ function ConversationPanel({
       <Menu
         label={compare ? `${label} actions` : "Conversation actions"}
         items={items}
+        disabled={
+          !items.some(
+            (item) =>
+              typeof item === "object" && "onSelect" in item && !item.disabled,
+          )
+        }
       />
     </>
   );
@@ -1135,14 +1167,32 @@ function ConversationPanel({
           />
         </div>
       )}
-      <div class="pg-turns" aria-live="polite" aria-busy={busy}>
+      <div
+        ref={turnsRef}
+        class="pg-turns"
+        tabIndex={-1}
+        aria-live="polite"
+        aria-busy={busy}
+      >
         {panel.turns.length ? (
           panel.turns.map((turn, i) => (
             <TurnView
               key={i}
               turn={turn}
+              detailsLabel={
+                compare
+                  ? `${label}, turn ${i + 1} details`
+                  : `Turn ${i + 1} details`
+              }
               onRetry={
-                i === panel.turns.length - 1 && !busy ? onRetry : undefined
+                i === panel.turns.length - 1 && !busy
+                  ? () => {
+                      // The callout holding Retry is replaced by the new
+                      // turn; keep focus in this conversation.
+                      turnsRef.current?.focus({ preventScroll: true });
+                      onRetry();
+                    }
+                  : undefined
               }
               running={running}
             />
@@ -1274,10 +1324,13 @@ function ParameterEditor({
 
 function TurnView({
   turn,
+  detailsLabel,
   onRetry,
   running,
 }: {
   turn: Turn;
+  /** Accessible name of the Details toggle ("Turn 2 details", …). */
+  detailsLabel: string;
   /** Offered on a failed last turn. */
   onRetry?: () => void;
   running: boolean;
@@ -1325,8 +1378,12 @@ function TurnView({
       <div class="pg-assistant">
         <span class="field-label">Assistant</span>
         {result?.reasoning && (
-          <div class="pg-reasoning">
-            <span class="sr-only">Reasoning: </span>
+          <div
+            class="pg-reasoning"
+            tabIndex={0}
+            role="region"
+            aria-label="Reasoning"
+          >
             {m.text(result.reasoning)}
           </div>
         )}
@@ -1377,6 +1434,7 @@ function TurnView({
             variant="ghost"
             size="sm"
             icon={open ? "chevronDown" : "chevronRight"}
+            aria-label={detailsLabel}
             aria-expanded={open}
             onClick={() => setOpen(!open)}
           >
@@ -1468,6 +1526,8 @@ function TurnInspector({
           : undefined;
   const text =
     payload === undefined ? "" : JSON.stringify(payload, omitImageData, 2);
+  // Copy keeps inline images so a copied request can be replayed as is.
+  const full = payload === undefined ? "" : JSON.stringify(payload, null, 2);
   return (
     <div class="inspector" aria-live="off">
       {metrics}
@@ -1490,7 +1550,7 @@ function TurnInspector({
           variant="ghost"
           icon="copy"
           disabled={!text}
-          onClick={() => void copy(text)}
+          onClick={() => void copy(full)}
         >
           Copy
         </Button>
@@ -1582,6 +1642,8 @@ function ComplianceResults({
               const expanded = open === key;
               const toggle = () => setOpen(expanded ? null : key);
               const explanation = m.text(row.explanation);
+              const testLabel =
+                CASES.find((c) => c.id === row.caseId)?.label ?? row.caseId;
               return (
                 <Fragment key={`${key}:${index}`}>
                   <tr
@@ -1589,7 +1651,7 @@ function ComplianceResults({
                     onClick={toggle}
                   >
                     <td>{row.model}</td>
-                    <td>{CASES.find((c) => c.id === row.caseId)?.label}</td>
+                    <td>{testLabel}</td>
                     <td>
                       <Pill
                         tone={VERDICT_TONES[row.verdict]}
@@ -1616,7 +1678,7 @@ function ComplianceResults({
                           toggle();
                         }}
                       >
-                        {expanded ? "Hide details" : "Show details"}
+                        {`${expanded ? "Hide" : "Show"} details for ${row.model}, ${testLabel}`}
                       </Button>
                     </td>
                   </tr>
